@@ -1,36 +1,209 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PIEcoviewer
 
-## Getting Started
+AI-powered GitHub Pull Request code review tool built with Next.js 15, supporting multiple AI providers (Claude, GPT-4, Gemini) and MCP (Model Context Protocol).
 
-First, run the development server:
+## Features
 
+- 🤖 **Multi-AI Provider Support**: Claude (Anthropic), GPT-4 (OpenAI), Gemini (Google)
+- 🔌 **MCP Integration**: Use Model Context Protocol for AI communication
+- 🔍 **Smart Code Review**: Automated PR analysis with line-by-line comments
+- 📝 **Customizable Reviews**: Set review language (Korean/English) and style (brief/detailed/strict)
+- 🔐 **GitHub OAuth**: Secure authentication with GitHub
+- 📊 **Organization Support**: Review PRs from personal and organization repositories
+- 💬 **Review Management**: Edit, save, and post reviews directly to GitHub
+- 🌓 **Dark Mode**: Full dark mode support
+- 📱 **Responsive Design**: Works on desktop and mobile
+
+## Tech Stack
+
+- **Framework**: Next.js 15 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Database**: SQLite with Prisma ORM
+- **Authentication**: NextAuth.js with GitHub Provider
+- **AI SDKs**:
+  - Anthropic SDK (Claude)
+  - OpenAI SDK (GPT-4)
+  - Google Generative AI (Gemini)
+  - MCP SDK (Model Context Protocol)
+- **API**: GitHub REST API (Octokit)
+
+## Prerequisites
+
+- Node.js 18+
+- npm or yarn or pnpm
+- GitHub account
+- One of the following:
+  - Claude API key (from Anthropic)
+  - OpenAI API key (from OpenAI)
+  - Gemini API key (from Google)
+  - MCP server setup
+
+## Installation
+
+1. Clone the repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/yourusername/piecoviewer.git
+cd piecoviewer
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Set up environment variables:
+```bash
+cp .env.example .env
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Edit `.env` and fill in the required values:
+```env
+# Database
+DATABASE_URL="file:./dev.db"
 
-## Learn More
+# NextAuth
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="your-secret-key-here"
 
-To learn more about Next.js, take a look at the following resources:
+# GitHub OAuth
+GITHUB_CLIENT_ID="your-github-client-id"
+GITHUB_CLIENT_SECRET="your-github-client-secret"
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+4. Set up the database:
+```bash
+npx prisma generate
+npx prisma db push
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+5. Run the development server:
+```bash
+npm run dev
+```
 
-## Deploy on Vercel
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## GitHub OAuth Setup
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
+2. Click "New OAuth App"
+3. Fill in the application details:
+   - **Application name**: PIEcoviewer
+   - **Homepage URL**: `http://localhost:3000` (or your production URL)
+   - **Authorization callback URL**: `http://localhost:3000/api/auth/callback/github`
+4. Copy the Client ID and generate a Client Secret
+5. Add them to your `.env` file
+
+## Usage
+
+### 1. Login with GitHub
+- Click "Login with GitHub" on the home page
+- Authorize the application to access your repositories
+
+### 2. Configure AI Settings
+- Go to Settings page
+- Choose one of the following:
+  - **Direct API**: Select AI provider and enter API key
+  - **MCP**: Enable MCP and configure server settings
+- Set review language and style preferences
+- (Optional) Add custom prompt instructions
+
+### 3. Review Pull Requests
+- Select a repository from the dashboard
+- Choose a PR to review
+- Click "AI 리뷰 시작" to generate review
+- Edit the review if needed
+- Add line-by-line comments (optional)
+- Select review type (Comment/Approve/Request Changes)
+- Post to GitHub
+
+## MCP Configuration
+
+MCP (Model Context Protocol) allows you to use AI models without directly managing API keys.
+
+Example MCP server configuration:
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-claude"],
+  "env": {
+    "ANTHROPIC_API_KEY": "your-api-key-here"
+  }
+}
+```
+
+## Project Structure
+
+```
+piecoviewer/
+├── app/                    # Next.js App Router
+│   ├── api/               # API routes
+│   │   ├── ai/           # AI provider endpoints
+│   │   ├── auth/         # NextAuth endpoints
+│   │   ├── github/       # GitHub API endpoints
+│   │   ├── mcp/          # MCP endpoints
+│   │   └── settings/     # Settings endpoints
+│   ├── dashboard/        # Main dashboard
+│   ├── login/            # Login page
+│   ├── repo/             # Repository pages
+│   └── settings/         # Settings page
+├── lib/                   # Utilities and libraries
+│   ├── ai/               # AI provider implementations
+│   ├── db/               # Database client
+│   └── mcp/              # MCP client
+├── prisma/               # Prisma schema and migrations
+└── public/               # Static assets
+```
+
+## Database Schema
+
+The application uses SQLite with Prisma ORM. Main models:
+
+- **User**: User account and GitHub info
+- **Settings**: AI provider settings and preferences
+- **Review**: Stored PR reviews
+
+## Scripts
+
+```bash
+# Development
+npm run dev          # Start dev server
+npm run build        # Build for production
+npm run start        # Start production server
+
+# Database
+npx prisma generate  # Generate Prisma client
+npx prisma db push   # Push schema to database
+npx prisma studio    # Open Prisma Studio
+
+# Code Quality
+npm run lint         # Run ESLint
+npm run type-check   # Run TypeScript type checking
+```
+
+## Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | SQLite database URL | Yes |
+| `NEXTAUTH_URL` | Application URL | Yes |
+| `NEXTAUTH_SECRET` | NextAuth secret key | Yes |
+| `GITHUB_CLIENT_ID` | GitHub OAuth Client ID | Yes |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth Client Secret | Yes |
+
+## License
+
+MIT License
+
+## Author
+
+Developed️ by [MANAPIE](https://manapie.me)
+
+## Acknowledgments
+
+- [Next.js](https://nextjs.org/)
+- [Anthropic Claude](https://www.anthropic.com/)
+- [OpenAI](https://openai.com/)
+- [Google Gemini](https://deepmind.google/technologies/gemini/)
+- [Model Context Protocol](https://modelcontextprotocol.io/)
