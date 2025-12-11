@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  githubId      String   @unique
+  name          String?
+  email         String?
+  avatarUrl     String?
+  accessToken   String
+  createdAt     DateTime @default(now())
+
+  reviews       Review[]
+  settings      UserSettings?
+}
+
+model UserSettings {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  aiProvider      String  @default("claude")
+  claudeApiKey    String?
+  openaiApiKey    String?
+  geminiApiKey    String?
+
+  // MCP 설정
+  useMCP          Boolean @default(false)
+  mcpServerCommand String?
+  mcpServerArgs   String?  // JSON string
+  mcpServerEnv    String?  // JSON string
+
+  customPrompt    String?
+  reviewLanguage  String  @default("ko")
+  reviewStyle     String  @default("detailed")
+}
+
+model Review {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  repoOwner       String
+  repoName        String
+  prNumber        Int
+  prTitle         String
+
+  aiProvider      String
+  reviewContent   String
+  fileComments    String?  // JSON string
+  isPosted        Boolean  @default(false)
+
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
