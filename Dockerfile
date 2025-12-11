@@ -1,46 +1,63 @@
 # Dockerfile
-FROM node:20-alpine AS base
+FROM node:20-slim AS base
 
-# Dependencies
-FROM base AS deps
-RUN apk add --no-cache libc6-compat openssl
+# OpenSSL 및 필수 라이브러리 설치
+RUN apt-get update && apt-get install -y \
+    openssl \
+    libssl3 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
+
+# Dependencies stage
+FROM base AS deps
 
 # package.json 복사
 COPY package.json ./
 
-# npm ci 대신 npm install 사용
+# 의존성 완전히 새로 설치
+RUN npm cache clean --force
 RUN npm install
 
-# Builder
+# Builder stage
 FROM base AS builder
-WORKDIR /app
+
+# deps에서 node_modules 복사
 COPY --from=deps /app/node_modules ./node_modules
+
+# 모든 소스 파일 복사 (prisma 포함)
 COPY . .
 
-# Prisma 생성
+# Prisma client 생성
 RUN npx prisma generate
 
-# Next.js 빌드
+# Next.js 빌드 (standalone 모드)
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# Runner
+# Runner stage
 FROM base AS runner
-WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# 비root 사용자 생성
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
-# 필요한 파일만 복사
+# 빌드 결과물 복사
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+# Prisma 관련 파일 복사
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
+
+# 데이터 디렉토리 생성 및 권한 설정
+RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
 
 USER nextjs
 
