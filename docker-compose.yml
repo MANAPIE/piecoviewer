@@ -11,16 +11,16 @@ services:
       - DATABASE_URL=file:/app/data/dev.db
 
       # Auth
-      - NEXTAUTH_URL=https://piecoviewer.your-nas-domain.synology.me
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
 
-      # AI Providers (옵션)
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Default AI Provider
       - DEFAULT_AI_PROVIDER=claude
+
+      # URL
+      - PIECOVIEWER_URL=${PIECOVIEWER_URL}
 
     volumes:
       # SQLite DB 영속성 보장
