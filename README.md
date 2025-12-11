@@ -43,7 +43,7 @@ AI-powered GitHub Pull Request code review tool built with Next.js 15, supportin
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/piecoviewer.git
+git clone https://github.com/MANAPIE/piecoviewer.git
 cd piecoviewer
 ```
 
