@@ -6,8 +6,11 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci
+# package.json 복사
+COPY package.json ./
+
+# npm ci 대신 npm install 사용
+RUN npm install
 
 # Builder
 FROM base AS builder
