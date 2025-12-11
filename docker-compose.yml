@@ -4,28 +4,18 @@ version: '3.8'
 services:
   piecoviewer:
     build: .
+    container_name: piecoviewer
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
-      # Database
+      # Override database path for Docker
       - DATABASE_URL=file:/app/data/dev.db
-
-      # Auth
-      - NEXTAUTH_URL=${NEXTAUTH_URL}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
-
-      # Default AI Provider
-      - DEFAULT_AI_PROVIDER=claude
-
-      # URL
-      - PIECOVIEWER_URL=${PIECOVIEWER_URL}
-
+      - NODE_ENV=production
     volumes:
       # SQLite DB 영속성 보장
       - piecoviewer-data:/app/data
-
     restart: unless-stopped
 
 volumes:
