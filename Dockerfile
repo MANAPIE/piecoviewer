@@ -29,10 +29,13 @@ COPY --from=deps /app/node_modules ./node_modules
 # 모든 소스 파일 복사 (prisma 포함)
 COPY . .
 
+# 기존 빌드 캐시 완전히 삭제
+RUN rm -rf .next
+
 # Prisma client 생성
 RUN npx prisma generate
 
-# Next.js 빌드 (standalone 모드)
+# Next.js 완전히 새로 빌드 (standalone 모드)
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
@@ -56,8 +59,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 
+# Prisma CLI 복사 (DB 마이그레이션용)
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+
 # 데이터 디렉토리 생성 및 권한 설정
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
+
+# 시작 스크립트 복사
+COPY --chown=nextjs:nodejs start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 USER nextjs
 
@@ -66,4 +76,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+CMD ["/app/start.sh"]
