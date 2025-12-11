@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  output: 'standalone', // Docker 배포를 위한 설정
 };
 
 export default nextConfig;
