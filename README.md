@@ -19,7 +19,7 @@ AI-powered GitHub Pull Request code review tool built with Next.js 15, supportin
 - **Framework**: Next.js 15 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
-- **Database**: SQLite with Prisma ORM
+- **Database**: SQLite with better-sqlite3
 - **Authentication**: NextAuth.js with GitHub Provider
 - **AI SDKs**:
   - Anthropic SDK (Claude)
@@ -71,11 +71,7 @@ GITHUB_CLIENT_ID="your-github-client-id"
 GITHUB_CLIENT_SECRET="your-github-client-secret"
 ```
 
-4. Set up the database:
-```bash
-npx prisma generate
-npx prisma db push
-```
+4. The database will be automatically created when you first run the application.
 
 5. Run the development server:
 ```bash
@@ -152,17 +148,16 @@ piecoviewer/
 │   ├── ai/               # AI provider implementations
 │   ├── db/               # Database client
 │   └── mcp/              # MCP client
-├── prisma/               # Prisma schema and migrations
 └── public/               # Static assets
 ```
 
 ## Database Schema
 
-The application uses SQLite with Prisma ORM. Main models:
+The application uses SQLite with better-sqlite3. Main tables:
 
-- **User**: User account and GitHub info
-- **Settings**: AI provider settings and preferences
-- **Review**: Stored PR reviews
+- **users**: User account and GitHub info
+- **settings**: AI provider settings and preferences
+- **reviews**: Stored PR reviews
 
 ## Scripts
 
@@ -171,11 +166,6 @@ The application uses SQLite with Prisma ORM. Main models:
 npm run dev          # Start dev server
 npm run build        # Build for production
 npm run start        # Start production server
-
-# Database
-npx prisma generate  # Generate Prisma client
-npx prisma db push   # Push schema to database
-npx prisma studio    # Open Prisma Studio
 
 # Code Quality
 npm run lint         # Run ESLint
@@ -199,11 +189,3 @@ MIT License
 ## Author
 
 Developed️ by [MANAPIE](https://manapie.me)
-
-## Acknowledgments
-
-- [Next.js](https://nextjs.org/)
-- [Anthropic Claude](https://www.anthropic.com/)
-- [OpenAI](https://openai.com/)
-- [Google Gemini](https://deepmind.google/technologies/gemini/)
-- [Model Context Protocol](https://modelcontextprotocol.io/)

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -20,6 +20,98 @@ import {
   FaTrash,
   FaCode
 } from 'react-icons/fa';
+
+// 코드 뷰어 컴포넌트
+function CodeViewer({ file, targetLine }: { file: File; targetLine?: number }) {
+  if (!file.patch) return null;
+  const targetLineRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 타겟 라인으로 스크롤 (컨테이너 내부에서만)
+  useEffect(() => {
+    if (targetLineRef.current && containerRef.current && targetLine) {
+      setTimeout(() => {
+        const container = containerRef.current;
+        const target = targetLineRef.current;
+        if (!container || !target) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const relativeTop = targetRect.top - containerRect.top;
+        const scrollPosition = container.scrollTop + relativeTop - containerRect.height / 2 + targetRect.height / 2;
+
+        container.scrollTop = scrollPosition;
+      }, 100);
+    }
+  }, [targetLine]);
+
+  const lines = file.patch.split('\n');
+  let currentLineNum = 0;
+
+  return (
+    <div ref={containerRef} className="mt-2 bg-gray-900 dark:bg-black rounded-lg overflow-auto max-h-96 border border-gray-700">
+      <div className="text-xs font-mono p-3">
+        {lines.map((line, lineIdx) => {
+          const lineMatch = line.match(/^@@\s+-\d+,?\d*\s+\+(\d+),?\d*\s+@@/);
+          if (lineMatch) {
+            currentLineNum = parseInt(lineMatch[1]) - 1;
+          }
+
+          const isAddition = line.startsWith('+') && !line.startsWith('+++');
+          const isDeletion = line.startsWith('-') && !line.startsWith('---');
+          const isHeader = line.startsWith('@@');
+
+          if (!isHeader && !isDeletion) {
+            currentLineNum++;
+          }
+
+          const isTargetLine = targetLine && currentLineNum === targetLine;
+
+          // + 또는 - 기호와 코드 사이에 공백 추가
+          let displayLine = line;
+          if (isAddition) {
+            displayLine = '+ ' + line.substring(1);
+          } else if (isDeletion) {
+            displayLine = '- ' + line.substring(1);
+          }
+
+          return (
+            <div
+              key={lineIdx}
+              ref={isTargetLine ? targetLineRef : null}
+              className={`flex ${
+                isTargetLine
+                  ? 'bg-purple-900/50 border-l-2 border-purple-400'
+                  : isAddition
+                  ? 'bg-green-900/20'
+                  : isDeletion
+                  ? 'bg-red-900/20'
+                  : ''
+              }`}
+            >
+              <span className="inline-block w-12 text-right pr-3 text-gray-500 dark:text-gray-600 select-none flex-shrink-0">
+                {!isHeader && !isDeletion ? currentLineNum : ''}
+              </span>
+              <code
+                className={`block whitespace-pre-wrap break-all ${
+                  isAddition
+                    ? 'text-green-400'
+                    : isDeletion
+                    ? 'text-red-400'
+                    : isHeader
+                    ? 'text-blue-400'
+                    : 'text-gray-300'
+                }`}
+              >
+                {displayLine}
+              </code>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 type PullRequest = {
   number: number;
@@ -98,9 +190,28 @@ type GitHubReviewComment = {
   pull_request_review_id?: number;
 };
 
+type Commit = {
+  sha: string;
+  commit: {
+    message: string;
+    author: {
+      name?: string;
+      date?: string;
+    } | null;
+  };
+  author: {
+    login?: string;
+    avatar_url?: string;
+    [key: string]: unknown;
+  } | null;
+  html_url: string;
+  [key: string]: unknown;
+};
+
 export default function PRReviewContent({
   pullRequest,
   files,
+  commits,
   owner,
   name,
   prNumber,
@@ -113,6 +224,7 @@ export default function PRReviewContent({
 }: {
   pullRequest: PullRequest;
   files: File[];
+  commits: Commit[];
   owner: string;
   name: string;
   prNumber: number;
@@ -134,6 +246,7 @@ export default function PRReviewContent({
   const [editingCommentIndex, setEditingCommentIndex] = useState<number | null>(null);
   const [isAddingComment, setIsAddingComment] = useState(false);
   const [newComment, setNewComment] = useState({ filename: '', line: '', comment: '' });
+  const [additionalPrompt, setAdditionalPrompt] = useState('');
 
   const router = useRouter();
 
@@ -161,7 +274,8 @@ export default function PRReviewContent({
           repo: name,
           prNumber,
           pullRequest,
-          files
+          files,
+          additionalPrompt: additionalPrompt || undefined
         })
       });
 
@@ -170,12 +284,20 @@ export default function PRReviewContent({
       const data = await response.json();
       setReview(data.review);
       setFileComments(data.fileComments || []);
+      setAdditionalPrompt(''); // 리뷰 생성 후 프롬프트 초기화
       setMessage('AI 리뷰가 생성되었습니다!');
     } catch {
       setMessage('리뷰 생성에 실패했습니다.');
     } finally {
       setReviewing(false);
     }
+  };
+
+  const handleRegenerate = () => {
+    // 리뷰 초기화하여 생성 전 상태로 되돌리기
+    setReview('');
+    setFileComments([]);
+    setMessage('');
   };
 
   const handleEdit = () => {
@@ -336,8 +458,58 @@ export default function PRReviewContent({
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* 왼쪽: 파일 변경사항 */}
+          {/* 왼쪽: 커밋 & 파일 변경사항 */}
           <div>
+            {/* 커밋 목록 */}
+            {commits.length > 0 && (
+              <div className="mb-6">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                  커밋 ({commits.length})
+                </h2>
+                <div className="space-y-2">
+                  {commits.map((commit) => (
+                    <a
+                      key={commit.sha}
+                      href={commit.html_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:border-purple-300 dark:hover:border-purple-600 transition-colors"
+                    >
+                      <div className="flex items-start gap-3">
+                        {commit.author && (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={commit.author.avatar_url}
+                            alt={commit.author.login}
+                            className="w-6 h-6 rounded-full flex-shrink-0"
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900 dark:text-white font-medium truncate">
+                            {commit.commit.message.split('\n')[0]}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            <span className="font-mono">{commit.sha.substring(0, 7)}</span>
+                            <span>•</span>
+                            <span>
+                              {commit.commit.author?.date
+                                ? new Date(commit.commit.author.date).toLocaleDateString('ko-KR', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
               변경된 파일 ({files.length})
             </h2>
@@ -363,16 +535,12 @@ export default function PRReviewContent({
                       {file.status}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-400">
+                  <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-400 mb-3">
                     <span className="text-green-600 dark:text-green-400">+{file.additions}</span>
                     <span className="text-red-600 dark:text-red-400">-{file.deletions}</span>
                     <span>{file.changes} changes</span>
                   </div>
-                  {file.patch && (
-                    <pre className="mt-3 p-3 bg-gray-50 dark:bg-gray-900 rounded text-xs overflow-x-auto max-h-40">
-                      <code className="text-gray-800 dark:text-gray-100">{file.patch}</code>
-                    </pre>
-                  )}
+                  {file.patch && <CodeViewer file={file} />}
                 </div>
               ))}
             </div>
@@ -453,24 +621,37 @@ export default function PRReviewContent({
                             {/* 라인별 코멘트 표시 */}
                             {reviewLineComments.length > 0 && (
                               <div className="mt-3 space-y-2 pl-3 border-l-2 border-purple-200 dark:border-purple-800">
-                                {reviewLineComments.map((comment) => (
-                                  <div key={comment.id} className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3">
-                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs font-mono">
-                                        <FaCode className="text-xs" />
-                                        {comment.path}
-                                      </span>
-                                      {comment.line && (
-                                        <span className="px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded text-xs font-medium">
-                                          Line {comment.line}
+                                {reviewLineComments.map((comment) => {
+                                  const file = files.find(f => f.filename === comment.path);
+
+                                  return (
+                                    <div key={comment.id} className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3">
+                                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs font-mono">
+                                          <FaCode className="text-xs" />
+                                          {comment.path}
                                         </span>
+                                        {comment.line && (
+                                          <span className="px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded text-xs font-medium">
+                                            Line {comment.line}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap mb-2">
+                                        {comment.body}
+                                      </p>
+
+                                      {/* 코드 뷰어 */}
+                                      {file && file.patch ? (
+                                        <CodeViewer file={file} targetLine={comment.line} />
+                                      ) : (
+                                        <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-500 dark:text-gray-400">
+                                          코드 미리보기를 사용할 수 없습니다.
+                                        </div>
                                       )}
                                     </div>
-                                    <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                                      {comment.body}
-                                    </p>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )}
 
@@ -555,9 +736,24 @@ export default function PRReviewContent({
                         </>
                       ) : (
                         <>
-                          <p className="text-gray-600 dark:text-gray-400 mb-6">
+                          <p className="text-gray-600 dark:text-gray-400 mb-4">
                             AI가 코드를 분석하고 리뷰를 생성합니다
                           </p>
+
+                          {/* 추가 프롬프트 입력 */}
+                          <div className="mb-6 text-left">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              추가 프롬프트 (선택사항)
+                            </label>
+                            <textarea
+                              value={additionalPrompt}
+                              onChange={(e) => setAdditionalPrompt(e.target.value)}
+                              placeholder="예: 성능 최적화에 초점을 맞춰서 리뷰해줘&#10;예: 보안 취약점을 중점적으로 확인해줘"
+                              rows={3}
+                              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+                            />
+                          </div>
+
                           <button
                             onClick={handleReview}
                             disabled={reviewing}
@@ -700,7 +896,8 @@ export default function PRReviewContent({
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="flex-1">
                                     <div className="flex items-center gap-2 mb-2">
-                                      <span className="font-mono text-xs text-purple-700 dark:text-purple-300">
+                                      <span className="font-mono text-xs text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                                        <FaCode className="text-xs" />
                                         {comment.filename}
                                       </span>
                                       {comment.line && (
@@ -709,9 +906,23 @@ export default function PRReviewContent({
                                         </span>
                                       )}
                                     </div>
-                                    <p className="text-sm text-gray-700 dark:text-gray-300">
+                                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                                       {comment.comment}
                                     </p>
+
+                                    {/* 인라인 코드 뷰어 - 항상 열려있음 */}
+                                    {(() => {
+                                      const file = files.find(f => f.filename === comment.filename);
+                                      if (!file || !file.patch) {
+                                        return (
+                                          <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-500 dark:text-gray-400">
+                                            코드 미리보기를 사용할 수 없습니다.
+                                          </div>
+                                        );
+                                      }
+
+                                      return <CodeViewer file={file} targetLine={comment.line} />;
+                                    })()}
                                   </div>
                                   <div className="flex gap-1">
                                     <button
@@ -877,7 +1088,7 @@ export default function PRReviewContent({
 
                       <div className="flex gap-3">
                         <button
-                          onClick={handleReview}
+                          onClick={handleRegenerate}
                           disabled={reviewing}
                           className="flex-1 flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
                         >

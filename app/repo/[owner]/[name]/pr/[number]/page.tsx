@@ -69,6 +69,24 @@ export default async function PRReviewPage({
     [key: string]: unknown;
   };
   let githubReviews: GitHubReview[] = [];
+  type GitHubCommit = {
+    sha: string;
+    commit: {
+      message: string;
+      author: {
+        name?: string;
+        date?: string;
+      } | null;
+    };
+    author: {
+      login?: string;
+      avatar_url?: string;
+      [key: string]: unknown;
+    } | null;
+    html_url: string;
+    [key: string]: unknown;
+  };
+  let commits: GitHubCommit[] = [];
   type ReviewCommentsResponse = {
     data: Array<{
       id: number;
@@ -145,6 +163,14 @@ export default async function PRReviewPage({
     githubReviews = [...reviews, ...comments].sort((a, b) =>
       new Date(b.submitted_at || 0).getTime() - new Date(a.submitted_at || 0).getTime()
     );
+
+    // 커밋 목록 가져오기
+    const commitsResponse = await octokit.pulls.listCommits({
+      owner,
+      repo: name,
+      pull_number: prNumber
+    });
+    commits = commitsResponse.data;
   } catch (error) {
     console.error('Failed to fetch PR:', error);
     fetchError = true;
@@ -231,6 +257,7 @@ export default async function PRReviewPage({
     <PRReviewContent
       pullRequest={pullRequest!}
       files={files!}
+      commits={commits}
       owner={owner}
       name={name}
       prNumber={prNumber}
