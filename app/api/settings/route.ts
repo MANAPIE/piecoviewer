@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { prisma } from '@/lib/db/prisma';
+import { userQueries, settingsQueries } from '@/lib/db/sqlite';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,9 +10,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findFirst({
-      where: { email: session.user.email }
-    });
+    const user = userQueries.findByEmail(session.user.email);
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -21,36 +19,9 @@ export async function POST(request: NextRequest) {
     const data = await request.json();
 
     // 설정 저장 또는 업데이트
-    const settings = await prisma.userSettings.upsert({
-      where: { userId: user.id },
-      update: {
-        aiProvider: data.aiProvider,
-        claudeApiKey: data.claudeApiKey || null,
-        openaiApiKey: data.openaiApiKey || null,
-        geminiApiKey: data.geminiApiKey || null,
-        useMCP: data.useMCP || false,
-        mcpServerCommand: data.mcpServerCommand || null,
-        mcpServerArgs: data.mcpServerArgs || null,
-        mcpServerEnv: data.mcpServerEnv || null,
-        customPrompt: data.customPrompt || null,
-        reviewLanguage: data.reviewLanguage,
-        reviewStyle: data.reviewStyle
-      },
-      create: {
-        userId: user.id,
-        aiProvider: data.aiProvider,
-        claudeApiKey: data.claudeApiKey || null,
-        openaiApiKey: data.openaiApiKey || null,
-        geminiApiKey: data.geminiApiKey || null,
-        useMCP: data.useMCP || false,
-        mcpServerCommand: data.mcpServerCommand || null,
-        mcpServerArgs: data.mcpServerArgs || null,
-        mcpServerEnv: data.mcpServerEnv || null,
-        customPrompt: data.customPrompt || null,
-        reviewLanguage: data.reviewLanguage,
-        reviewStyle: data.reviewStyle
-      }
-    });
+    settingsQueries.upsert(user.id, data);
+
+    const settings = settingsQueries.findByUserId(user.id);
 
     return NextResponse.json({ success: true, settings });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { Octokit } from '@octokit/rest';
-import { prisma } from '@/lib/db/prisma';
+import { userQueries, reviewQueries } from '@/lib/db/sqlite';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,9 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findFirst({
-      where: { email: session.user.email }
-    });
+    const user = userQueries.findByEmail(session.user.email);
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -22,7 +20,7 @@ export async function POST(request: NextRequest) {
     const { owner, repo, prNumber, review, reviewType = 'COMMENT', fileComments = [] } = await request.json();
 
     // GitHub API 클라이언트 생성
-    const octokit = new Octokit({ auth: user.accessToken });
+    const octokit = new Octokit({ auth: user.access_token });
 
     // 라인별 코멘트가 있는 경우 리뷰로 게시
     if (fileComments.length > 0) {
@@ -64,17 +62,7 @@ export async function POST(request: NextRequest) {
     }
 
     // DB에서 리뷰를 찾아서 isPosted 업데이트
-    await prisma.review.updateMany({
-      where: {
-        userId: user.id,
-        repoOwner: owner,
-        repoName: repo,
-        prNumber
-      },
-      data: {
-        isPosted: true
-      }
-    });
+    reviewQueries.updateIsPosted(user.id, owner, repo, prNumber, true);
 
     return NextResponse.json({ success: true });
   } catch (error) {

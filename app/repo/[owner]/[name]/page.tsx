@@ -1,8 +1,33 @@
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { Octokit } from '@octokit/rest';
-import { prisma } from '@/lib/db/prisma';
+import { userQueries } from '@/lib/db/sqlite';
 import RepoContent from './RepoContent';
+
+type PullRequest = {
+  id: number;
+  number: number;
+  title: string;
+  user: { login: string; avatar_url: string };
+  state: string;
+  created_at: string;
+  updated_at: string;
+  html_url: string;
+  [key: string]: unknown;
+};
+
+type Repository = {
+  id: number;
+  name: string;
+  full_name: string;
+  description: string | null;
+  html_url: string;
+  stargazers_count: number;
+  forks_count: number;
+  open_issues_count: number;
+  private: boolean;
+  [key: string]: unknown;
+};
 
 export default async function RepoPage({
   params
@@ -15,9 +40,7 @@ export default async function RepoPage({
     redirect('/login');
   }
 
-  const user = await prisma.user.findFirst({
-    where: { email: session.user.email! }
-  });
+  const user = userQueries.findByEmail(session.user.email!);
 
   if (!user) {
     redirect('/login');
@@ -25,17 +48,17 @@ export default async function RepoPage({
 
   const { owner, name } = await params;
 
-  let repo: any;
-  let openPullRequests: any[] = [];
-  let closedPullRequests: any[] = [];
+  let repo: Repository | null = null;
+  let openPullRequests: PullRequest[] = [];
+  let closedPullRequests: PullRequest[] = [];
   let fetchError = false;
   let errorMessage = '';
 
-  if (!user.accessToken) {
+  if (!user.access_token) {
     fetchError = true;
     errorMessage = 'GitHub 토큰이 없습니다. 다시 로그인해주세요.';
   } else {
-    const octokit = new Octokit({ auth: user.accessToken });
+    const octokit = new Octokit({ auth: user.access_token });
 
     try {
       const repoResponse = await octokit.repos.get({ owner, repo: name });
@@ -48,7 +71,7 @@ export default async function RepoPage({
         sort: 'updated',
         per_page: 100
       });
-      openPullRequests = openPRResponse.data;
+      openPullRequests = openPRResponse.data.filter(pr => pr.user !== null) as PullRequest[];
 
       const closedPRResponse = await octokit.pulls.list({
         owner,
@@ -57,7 +80,7 @@ export default async function RepoPage({
         sort: 'updated',
         per_page: 100
       });
-      closedPullRequests = closedPRResponse.data;
+      closedPullRequests = closedPRResponse.data.filter(pr => pr.user !== null) as PullRequest[];
     } catch (error: unknown) {
       console.error('Failed to fetch repository:', error);
       fetchError = true;

@@ -1,8 +1,36 @@
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { Octokit } from '@octokit/rest';
-import { prisma } from '@/lib/db/prisma';
+import { userQueries, settingsQueries, reviewQueries, type Review } from '@/lib/db/sqlite';
 import PRReviewContent from './PRReviewContent';
+
+type GitHubPR = {
+  id: number;
+  number: number;
+  title: string;
+  body: string | null;
+  user: { login: string; avatar_url: string };
+  state: string;
+  created_at: string;
+  updated_at: string;
+  html_url: string;
+  additions: number;
+  deletions: number;
+  changed_files: number;
+  head: { ref: string };
+  base: { ref: string };
+  [key: string]: unknown;
+};
+
+type GitHubFile = {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+  [key: string]: unknown;
+};
 
 export default async function PRReviewPage({
   params
@@ -15,24 +43,47 @@ export default async function PRReviewPage({
     redirect('/login');
   }
 
-  const user = await prisma.user.findFirst({
-    where: { email: session.user.email! },
-    include: { settings: true }
-  });
+  const user = userQueries.findByEmail(session.user.email!);
 
   if (!user) {
     redirect('/login');
   }
 
+  const settings = settingsQueries.findByUserId(user.id);
+
   const { owner, name, number } = await params;
   const prNumber = parseInt(number);
 
-  const octokit = new Octokit({ auth: user.accessToken });
+  const octokit = new Octokit({ auth: user.access_token });
 
-  let pullRequest: any;
-  let files: any[];
-  let githubReviews: any[] = [];
-  let reviewCommentsResponse: any;
+  let pullRequest: GitHubPR | null = null;
+  let files: GitHubFile[] = [];
+  type GitHubReview = {
+    id: number;
+    user: { login: string; avatar_url: string } | null;
+    body: string;
+    state: string;
+    submitted_at?: string;
+    html_url: string;
+    type: 'review' | 'comment';
+    [key: string]: unknown;
+  };
+  let githubReviews: GitHubReview[] = [];
+  type ReviewCommentsResponse = {
+    data: Array<{
+      id: number;
+      user: { login: string; avatar_url: string } | null;
+      path: string;
+      line?: number;
+      original_line?: number;
+      body: string;
+      created_at: string;
+      html_url: string;
+      pull_request_review_id: number | null;
+      [key: string]: unknown;
+    }>;
+  };
+  let reviewCommentsResponse: ReviewCommentsResponse | null = null;
   let fetchError = false;
 
   try {
@@ -48,7 +99,10 @@ export default async function PRReviewPage({
       repo: name,
       pull_number: prNumber
     });
-    files = filesResponse.data;
+    files = filesResponse.data.map(file => ({
+      ...file,
+      changes: file.changes || (file.additions + file.deletions)
+    }));
 
     // GitHub PR의 기존 리뷰들과 코멘트 가져오기
     const reviewsResponse = await octokit.pulls.listReviews({
@@ -111,24 +165,10 @@ export default async function PRReviewPage({
   }
 
   // 게시되지 않은 리뷰만 가져오기
-  const existingReview = await prisma.review.findFirst({
-    where: {
-      userId: user.id,
-      repoOwner: owner,
-      repoName: name,
-      prNumber: prNumber,
-      isPosted: false  // 게시되지 않은 리뷰만
-    },
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      reviewContent: true,
-      fileComments: true,
-      aiProvider: true,
-      isPosted: true,
-      createdAt: true
-    }
-  });
+  const allReviews = reviewQueries.findByPR(user.id, owner, name, prNumber);
+  const existingReview = allReviews.find((r: Review) =>
+    r.is_posted === 0
+  );
 
   // GitHub 사용자 정보 가져오기
   const githubUser = await octokit.users.getAuthenticated();
@@ -138,16 +178,16 @@ export default async function PRReviewPage({
   let existingFileComments: Array<{filename: string; line?: number; comment: string}> = [];
 
   // DB에 저장된 fileComments가 있으면 사용
-  if (existingReview?.fileComments) {
+  if (existingReview?.file_comments) {
     try {
-      existingFileComments = JSON.parse(existingReview.fileComments);
+      existingFileComments = JSON.parse(existingReview.file_comments);
     } catch (e) {
       console.error('Failed to parse fileComments:', e);
     }
   }
   // DB에 없으면 GitHub에서 가져온 review comments 사용
   else if (reviewCommentsResponse && reviewCommentsResponse.data.length > 0) {
-    existingFileComments = reviewCommentsResponse.data.map((comment: any) => ({
+    existingFileComments = reviewCommentsResponse.data.map(comment => ({
       filename: comment.path,
       line: comment.line || comment.original_line,
       comment: comment.body
@@ -155,7 +195,7 @@ export default async function PRReviewPage({
   }
 
   // GitHub의 라인별 코멘트를 별도로 전달
-  const githubReviewComments = reviewCommentsResponse?.data.map((comment: any) => ({
+  const githubReviewComments = reviewCommentsResponse?.data.map(comment => ({
     id: comment.id,
     user: comment.user,
     path: comment.path,
@@ -163,8 +203,29 @@ export default async function PRReviewPage({
     body: comment.body,
     created_at: comment.created_at,
     html_url: comment.html_url,
-    pull_request_review_id: comment.pull_request_review_id
+    ...(comment.pull_request_review_id !== null && { pull_request_review_id: comment.pull_request_review_id })
   })) || [];
+
+  // githubReviews를 PRReviewContent가 기대하는 형태로 변환 (type 필드 제거, user null 필터링)
+  const formattedGithubReviews = githubReviews
+    .filter(review => review.user !== null)
+    .map(({ type, ...review }) => ({
+      ...review,
+      user: review.user!,
+      submitted_at: review.submitted_at || ''
+    }));
+
+  // userSettings를 camelCase로 변환
+  const formattedSettings = settings ? {
+    aiProvider: settings.ai_provider,
+    useMCP: settings.use_mcp === 1,
+    claudeApiKey: settings.claude_api_key,
+    openaiApiKey: settings.openai_api_key,
+    geminiApiKey: settings.gemini_api_key,
+    customPrompt: settings.custom_prompt,
+    reviewLanguage: settings.review_language,
+    reviewStyle: settings.review_style
+  } : null;
 
   return (
     <PRReviewContent
@@ -173,10 +234,16 @@ export default async function PRReviewPage({
       owner={owner}
       name={name}
       prNumber={prNumber}
-      existingReview={existingReview}
+      existingReview={existingReview ? {
+        id: existingReview.id,
+        reviewContent: existingReview.review_content,
+        aiProvider: existingReview.ai_provider,
+        isPosted: existingReview.is_posted === 1,
+        createdAt: new Date(existingReview.created_at)
+      } : null}
       existingFileComments={existingFileComments}
-      userSettings={user.settings}
-      githubReviews={githubReviews!}
+      userSettings={formattedSettings}
+      githubReviews={formattedGithubReviews}
       githubReviewComments={githubReviewComments}
       isOwnPR={isOwnPR}
     />

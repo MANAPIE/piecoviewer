@@ -1,7 +1,7 @@
-import   { getServerSession } from 'next-auth/next';
+import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import { Octokit } from '@octokit/rest';
-import { prisma } from '@/lib/db/prisma';
+import { userQueries, settingsQueries, reviewQueries } from '@/lib/db/sqlite';
 import DashboardContent from './DashboardContent';
 
 export default async function DashboardPage() {
@@ -12,39 +12,54 @@ export default async function DashboardPage() {
   }
 
   // 사용자 정보 가져오기
-  const user = await prisma.user.findFirst({
-    where: {
-      email: session.user.email!
-    },
-    include: {
-      settings: {
-        select: {
-          aiProvider: true,
-          reviewLanguage: true,
-          claudeApiKey: true,
-          openaiApiKey: true,
-          geminiApiKey: true,
-          useMCP: true
-        }
-      }
-    }
-  });
+  const user = userQueries.findByEmail(session.user.email!);
 
   if (!user) {
     redirect('/login');
   }
 
+  // 설정 가져오기
+  const settings = settingsQueries.findByUserId(user.id);
+
+  // user 객체에 settings 포함 (camelCase로 변환)
+  const userWithSettings = {
+    ...user,
+    avatarUrl: user.avatar_url,
+    accessToken: user.access_token,
+    settings: settings ? {
+      aiProvider: settings.ai_provider,
+      reviewLanguage: settings.review_language,
+      claudeApiKey: settings.claude_api_key,
+      openaiApiKey: settings.openai_api_key,
+      geminiApiKey: settings.gemini_api_key,
+      useMCP: settings.use_mcp === 1
+    } : null
+  };
+
   // GitHub API로 저장소 목록 가져오기
-  let repos: any[] = [];
+  type GitHubRepo = {
+    id: number;
+    name: string;
+    full_name: string;
+    description: string | null;
+    private: boolean;
+    html_url: string;
+    updated_at: string;
+    stargazers_count: number;
+    open_issues_count: number;
+    owner: { login: string; avatar_url: string; type: string };
+    [key: string]: unknown;
+  };
+  let repos: GitHubRepo[] = [];
   let githubUsername = '';
   let fetchError = false;
   let errorMessage = '';
 
-  if (!user.accessToken) {
+  if (!user.access_token) {
     fetchError = true;
     errorMessage = 'GitHub 토큰이 없습니다. 다시 로그인해주세요.';
   } else {
-    const octokit = new Octokit({ auth: user.accessToken });
+    const octokit = new Octokit({ auth: user.access_token });
 
     try {
       // GitHub username 가져오기
@@ -57,7 +72,10 @@ export default async function DashboardPage() {
         per_page: 100,
         affiliation: 'owner,collaborator,organization_member'
       });
-      repos = response.data;
+      repos = response.data.map(repo => ({
+        ...repo,
+        updated_at: repo.updated_at || ''
+      }));
     } catch (error: unknown) {
       console.error('Failed to fetch repositories:', error);
       fetchError = true;
@@ -72,11 +90,16 @@ export default async function DashboardPage() {
   }
 
   // 최근 리뷰 내역 가져오기
-  const recentReviews = await prisma.review.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: 'desc' },
-    take: 10
-  });
+  const dbReviews = reviewQueries.findByUserId(user.id, 10);
+  const recentReviews = dbReviews.map(review => ({
+    id: review.id,
+    repoOwner: review.repo_owner,
+    repoName: review.repo_name,
+    prNumber: review.pr_number,
+    prTitle: '', // DB에 없음
+    aiProvider: review.ai_provider,
+    createdAt: new Date(review.created_at)
+  }));
 
   if (fetchError) {
     return (
@@ -103,7 +126,7 @@ export default async function DashboardPage() {
 
   return (
     <DashboardContent
-      user={user}
+      user={userWithSettings}
       repos={repos}
       recentReviews={recentReviews}
       githubUsername={githubUsername}

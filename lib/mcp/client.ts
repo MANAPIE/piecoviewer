@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { MCPServerConfig, MCPReviewRequest, MCPReviewResponse } from './types';
+import { z } from 'zod';
 
 export class MCPClient {
   private client: Client | null = null;
@@ -55,7 +56,9 @@ export class MCPClient {
             }
           }
         },
-        {} as any
+        z.object({
+          content: z.array(z.object({ text: z.string().optional() })).optional()
+        })
       );
 
       return {
@@ -93,10 +96,12 @@ export class MCPClient {
           method: 'tools/list',
           params: {}
         },
-        {} as any
+        z.object({
+          tools: z.array(z.object({ name: z.string() })).optional()
+        })
       );
 
-      return result.tools?.map((tool: { name: string }) => tool.name) || [];
+      return result.tools?.map(tool => tool.name) || [];
     } catch (error) {
       console.error('MCP list tools error:', error);
       return [];

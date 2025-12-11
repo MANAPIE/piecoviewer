@@ -513,8 +513,6 @@ export default function PRReviewContent({
                     <>
                       <div className="relative mb-6">
                         <div className="w-20 h-20 mx-auto">
-                          <div className="absolute inset-0 border-4 border-purple-200 dark:border-purple-900 rounded-full"></div>
-                          <div className="absolute inset-0 border-4 border-transparent border-t-purple-600 dark:border-t-purple-400 rounded-full animate-spin"></div>
                           <FaRobot className="absolute inset-0 m-auto text-3xl text-purple-600 dark:text-purple-400" />
                         </div>
                       </div>

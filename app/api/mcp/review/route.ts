@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { prisma } from '@/lib/db/prisma';
+import { userQueries, settingsQueries, reviewQueries } from '@/lib/db/sqlite';
 import { createMCPClient } from '@/lib/mcp/client';
 
 export async function POST(request: NextRequest) {
@@ -11,26 +11,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = await prisma.user.findFirst({
-      where: { email: session.user.email },
-      include: { settings: true }
-    });
+    const user = userQueries.findByEmail(session.user.email);
 
-    if (!user || !user.settings) {
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    const settings = settingsQueries.findByUserId(user.id);
+
+    if (!settings) {
       return NextResponse.json(
         { error: 'User settings not found' },
         { status: 404 }
       );
     }
 
-    if (!user.settings.useMCP) {
+    if (!settings.use_mcp) {
       return NextResponse.json(
         { error: 'MCP is not enabled' },
         { status: 400 }
       );
     }
 
-    if (!user.settings.mcpServerCommand) {
+    if (!settings.mcp_server_command) {
       return NextResponse.json(
         { error: 'MCP server command not configured' },
         { status: 400 }
@@ -58,13 +64,9 @@ export async function POST(request: NextRequest) {
     try {
       await mcpClient.connect({
         name: 'piecoviewer-mcp-server',
-        command: user.settings.mcpServerCommand,
-        args: user.settings.mcpServerArgs
-          ? JSON.parse(user.settings.mcpServerArgs)
-          : [],
-        env: user.settings.mcpServerEnv
-          ? JSON.parse(user.settings.mcpServerEnv)
-          : {}
+        command: settings.mcp_server_command,
+        args: settings.mcp_server_args ? JSON.parse(settings.mcp_server_args) : [],
+        env: settings.mcp_server_env ? JSON.parse(settings.mcp_server_env) : {}
       });
 
       // MCP를 통한 리뷰 요청
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest) {
         prNumber,
         files,
         pullRequest,
-        customPrompt: user.settings.customPrompt || undefined
+        customPrompt: settings.custom_prompt || undefined
       });
 
       await mcpClient.disconnect();
@@ -87,17 +89,14 @@ export async function POST(request: NextRequest) {
       }
 
       // 리뷰 결과를 DB에 저장
-      const review = await prisma.review.create({
-        data: {
-          userId: user.id,
-          repoOwner: owner,
-          repoName: repo,
-          prNumber,
-          prTitle: pullRequest.title,
-          aiProvider: 'mcp',
-          reviewContent: result.review || '',
-          isPosted: false
-        }
+      const review = reviewQueries.create({
+        userId: user.id,
+        repoOwner: owner,
+        repoName: repo,
+        prNumber,
+        reviewContent: result.review || '',
+        fileComments: JSON.stringify([]),
+        aiProvider: 'mcp'
       });
 
       return NextResponse.json({

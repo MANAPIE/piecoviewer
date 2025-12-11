@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:prod": "node server.js",
     "lint": "eslint"
   },
   "dependencies": {
@@ -13,7 +14,8 @@
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/sdk": "^1.24.3",
     "@octokit/rest": "^22.0.1",
-    "@prisma/client": "^5.22.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.5.0",
     "dotenv": "^17.2.3",
     "next": "16.0.8",
     "next-auth": "^4.24.13",
@@ -31,7 +33,6 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.8",
-    "prisma": "^5.22.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

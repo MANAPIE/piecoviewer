@@ -1,6 +1,6 @@
 import NextAuth from 'next-auth';
 import GithubProvider from 'next-auth/providers/github';
-import { prisma } from '@/lib/db/prisma';
+import { userQueries } from '@/lib/db/sqlite';
 
 interface GitHubProfile {
     id: number;
@@ -27,21 +27,12 @@ const handler = NextAuth({
             if (account?.provider === 'github' && profile) {
                 const githubProfile = profile as GitHubProfile;
                 // DB에 사용자 저장/업데이트
-                await prisma.user.upsert({
-                    where: { githubId: githubProfile.id.toString() },
-                    update: {
-                        name: githubProfile.name || user.name,
-                        email: githubProfile.email || user.email,
-                        avatarUrl: user.image,
-                        accessToken: account.access_token!
-                    },
-                    create: {
-                        githubId: githubProfile.id.toString(),
-                        name: githubProfile.name || user.name,
-                        email: githubProfile.email || user.email,
-                        avatarUrl: user.image,
-                        accessToken: account.access_token!
-                    }
+                userQueries.upsert({
+                    githubId: githubProfile.id.toString(),
+                    name: githubProfile.name || user.name || null,
+                    email: githubProfile.email || user.email || null,
+                    avatarUrl: user.image || null,
+                    accessToken: account.access_token!
                 });
             }
             return true;
