@@ -41,10 +41,13 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Prisma
-/prisma/*.db
-/prisma/*.db-journal
-/app/generated/prisma
+# SQLite Database
+*.db
+*.db-shm
+*.db-wal
+/data/*.db
+/data/*.db-shm
+/data/*.db-wal
 
 # IDE
 .idea/

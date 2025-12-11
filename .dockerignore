@@ -50,9 +50,10 @@ docs
 # CI/CD
 .github
 
-# Prisma
-prisma/*.db
-prisma/*.db-journal
+# SQLite Database (exclude local dev databases)
+*.db
+*.db-shm
+*.db-wal
 
 # Logs
 logs
