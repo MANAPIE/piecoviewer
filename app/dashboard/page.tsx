@@ -35,7 +35,7 @@ export default async function DashboardPage() {
   }
 
   // GitHub API로 저장소 목록 가져오기
-  let repos = [];
+  let repos: any[] = [];
   let githubUsername = '';
   let fetchError = false;
   let errorMessage = '';

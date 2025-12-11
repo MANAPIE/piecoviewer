@@ -29,10 +29,10 @@ export default async function PRReviewPage({
 
   const octokit = new Octokit({ auth: user.accessToken });
 
-  let pullRequest;
-  let files;
-  let githubReviews = [];
-  let reviewCommentsResponse: { data: Array<{ id: number; path: string; line?: number; original_line?: number; body: string; user: { login: string; avatar_url: string } | null; created_at: string; html_url: string; pull_request_review_id?: number }> } | undefined;
+  let pullRequest: any;
+  let files: any[];
+  let githubReviews: any[] = [];
+  let reviewCommentsResponse: any;
   let fetchError = false;
 
   try {
@@ -89,7 +89,7 @@ export default async function PRReviewPage({
 
     // 시간순으로 정렬
     githubReviews = [...reviews, ...comments].sort((a, b) =>
-      new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
+      new Date(b.submitted_at || 0).getTime() - new Date(a.submitted_at || 0).getTime()
     );
   } catch (error) {
     console.error('Failed to fetch PR:', error);
@@ -147,7 +147,7 @@ export default async function PRReviewPage({
   }
   // DB에 없으면 GitHub에서 가져온 review comments 사용
   else if (reviewCommentsResponse && reviewCommentsResponse.data.length > 0) {
-    existingFileComments = reviewCommentsResponse.data.map((comment) => ({
+    existingFileComments = reviewCommentsResponse.data.map((comment: any) => ({
       filename: comment.path,
       line: comment.line || comment.original_line,
       comment: comment.body
@@ -155,7 +155,7 @@ export default async function PRReviewPage({
   }
 
   // GitHub의 라인별 코멘트를 별도로 전달
-  const githubReviewComments = reviewCommentsResponse?.data.map((comment) => ({
+  const githubReviewComments = reviewCommentsResponse?.data.map((comment: any) => ({
     id: comment.id,
     user: comment.user,
     path: comment.path,

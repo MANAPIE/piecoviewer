@@ -25,9 +25,9 @@ export default async function RepoPage({
 
   const { owner, name } = await params;
 
-  let repo;
-  let openPullRequests;
-  let closedPullRequests;
+  let repo: any;
+  let openPullRequests: any[] = [];
+  let closedPullRequests: any[] = [];
   let fetchError = false;
   let errorMessage = '';
 

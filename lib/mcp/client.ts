@@ -15,9 +15,9 @@ export class MCPClient {
       command: config.command,
       args: config.args || [],
       env: {
-        ...process.env,
-        ...config.env
-      }
+        ...(process.env as Record<string, string>),
+        ...(config.env || {})
+      } as Record<string, string>
     });
 
     this.client = new Client(
@@ -55,7 +55,7 @@ export class MCPClient {
             }
           }
         },
-        {}
+        {} as any
       );
 
       return {
@@ -93,7 +93,7 @@ export class MCPClient {
           method: 'tools/list',
           params: {}
         },
-        {}
+        {} as any
       );
 
       return result.tools?.map((tool: { name: string }) => tool.name) || [];
