@@ -10,9 +10,15 @@ export function proxy(request: NextRequest) {
 
     // HTTP 요청이면 HTTPS로 리다이렉트
     if (proto === 'http') {
-      const url = request.nextUrl.clone();
-      url.protocol = 'https:';
-      return NextResponse.redirect(url, 301);
+      // x-forwarded-host를 사용하여 원래 호스트 유지
+      const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+      const pathname = request.nextUrl.pathname;
+      const search = request.nextUrl.search;
+
+      // 전체 URL 재구성
+      const redirectUrl = `https://${host}${pathname}${search}`;
+
+      return NextResponse.redirect(redirectUrl, 301);
     }
   }
 
