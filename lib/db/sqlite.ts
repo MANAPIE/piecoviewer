@@ -114,6 +114,20 @@ db.exec(`
 // WAL 모드 활성화 (성능 향상)
 db.pragma('journal_mode = WAL');
 
+// 마이그레이션: analyze_codebase 컬럼 추가 (기존 DB 호환성)
+try {
+  const tableInfo = db.prepare("PRAGMA table_info(settings)").all() as { name: string }[];
+  const hasAnalyzeCodebase = tableInfo.some(col => col.name === 'analyze_codebase');
+
+  if (!hasAnalyzeCodebase) {
+    console.log('Running migration: Adding analyze_codebase column to settings table');
+    db.exec('ALTER TABLE settings ADD COLUMN analyze_codebase INTEGER DEFAULT 0');
+    console.log('Migration completed successfully');
+  }
+} catch (error) {
+  console.error('Migration error:', error);
+}
+
 export default db;
 
 // 사용자 관련 쿼리
