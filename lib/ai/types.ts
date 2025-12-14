@@ -11,6 +11,8 @@ export interface ReviewContext {
     prDescription: string;
     fileChanges: FileChange[];
     customPrompt?: string;
+    reviewLanguage?: string;
+    reviewStyle?: string;
 }
 
 export interface FileComment {

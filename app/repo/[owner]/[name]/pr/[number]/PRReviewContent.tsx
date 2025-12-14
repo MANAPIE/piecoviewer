@@ -23,7 +23,6 @@ import {
 
 // 코드 뷰어 컴포넌트
 function CodeViewer({ file, targetLine }: { file: File; targetLine?: number }) {
-  if (!file.patch) return null;
   const targetLineRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -44,6 +43,8 @@ function CodeViewer({ file, targetLine }: { file: File; targetLine?: number }) {
       }, 100);
     }
   }, [targetLine]);
+
+  if (!file.patch) return null;
 
   const lines = file.patch.split('\n');
   let currentLineNum = 0;
@@ -162,6 +163,7 @@ type UserSettings = {
   customPrompt: string | null;
   reviewLanguage: string;
   reviewStyle: string;
+  analyzeCodebase: boolean;
 } | null;
 
 type GitHubReview = {
@@ -248,7 +250,21 @@ export default function PRReviewContent({
   const [newComment, setNewComment] = useState({ filename: '', line: '', comment: '' });
   const [additionalPrompt, setAdditionalPrompt] = useState('');
 
+  // 리뷰 설정 상태
+  const [reviewLanguage, setReviewLanguage] = useState(userSettings?.reviewLanguage || 'ko');
+  const [reviewStyle, setReviewStyle] = useState(userSettings?.reviewStyle || 'detailed');
+  const [analyzeCodebase, setAnalyzeCodebase] = useState(userSettings?.analyzeCodebase || false);
+
   const router = useRouter();
+
+  // userSettings가 변경되면 로컬 상태 업데이트
+  useEffect(() => {
+    if (userSettings) {
+      setReviewLanguage(userSettings.reviewLanguage);
+      setReviewStyle(userSettings.reviewStyle);
+      setAnalyzeCodebase(userSettings.analyzeCodebase);
+    }
+  }, [userSettings]);
 
   // API 키 또는 MCP 설정 여부 확인
   const hasValidConfig = userSettings && (
@@ -263,6 +279,9 @@ export default function PRReviewContent({
     setMessage('');
 
     try {
+      // 먼저 설정 저장
+      await saveSettings();
+
       // MCP 사용 여부에 따라 다른 API 호출
       const apiEndpoint = userSettings?.useMCP ? '/api/mcp/review' : '/api/ai/review';
 
@@ -286,7 +305,8 @@ export default function PRReviewContent({
       setFileComments(data.fileComments || []);
       setAdditionalPrompt(''); // 리뷰 생성 후 프롬프트 초기화
       setMessage('AI 리뷰가 생성되었습니다!');
-    } catch {
+    } catch (error) {
+      console.error('Review generation error:', error);
       setMessage('리뷰 생성에 실패했습니다.');
     } finally {
       setReviewing(false);
@@ -402,6 +422,33 @@ export default function PRReviewContent({
   const handleCancelNewComment = () => {
     setIsAddingComment(false);
     setNewComment({ filename: '', line: '', comment: '' });
+  };
+
+  // 설정 저장 함수
+  const saveSettings = async () => {
+    try {
+      // 기존 설정을 유지하면서 일부만 업데이트
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aiProvider: userSettings?.aiProvider,
+          claudeApiKey: userSettings?.claudeApiKey,
+          openaiApiKey: userSettings?.openaiApiKey,
+          geminiApiKey: userSettings?.geminiApiKey,
+          useMCP: userSettings?.useMCP,
+          customPrompt: userSettings?.customPrompt,
+          reviewLanguage,
+          reviewStyle,
+          analyzeCodebase
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to update settings');
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+      throw error;
+    }
   };
 
   return (
@@ -736,9 +783,58 @@ export default function PRReviewContent({
                         </>
                       ) : (
                         <>
-                          <p className="text-gray-600 dark:text-gray-400 mb-4">
+                          <p className="text-gray-600 dark:text-gray-400 mb-6">
                             AI가 코드를 분석하고 리뷰를 생성합니다
                           </p>
+
+                          {/* 리뷰 설정 */}
+                          <div className="mb-6 text-left space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                  리뷰 언어
+                                </label>
+                                <select
+                                  value={reviewLanguage}
+                                  onChange={(e) => setReviewLanguage(e.target.value)}
+                                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                >
+                                  <option value="ko">한국어</option>
+                                  <option value="en">English</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                  리뷰 스타일
+                                </label>
+                                <select
+                                  value={reviewStyle}
+                                  onChange={(e) => setReviewStyle(e.target.value)}
+                                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                >
+                                  <option value="brief">간략</option>
+                                  <option value="detailed">상세</option>
+                                  <option value="strict">엄격</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg">
+                              <input
+                                type="checkbox"
+                                id="analyzeCodebase"
+                                checked={analyzeCodebase}
+                                onChange={(e) => setAnalyzeCodebase(e.target.checked)}
+                                className="mt-0.5 w-4 h-4 text-purple-600 border-gray-300 dark:border-gray-600 rounded focus:ring-purple-500"
+                              />
+                              <label htmlFor="analyzeCodebase" className="text-xs text-gray-900 dark:text-white cursor-pointer">
+                                <span className="font-semibold">코드베이스 전반 분석</span>
+                                <p className="text-gray-600 dark:text-gray-400 mt-0.5">
+                                  레포지토리 전체 구조와 코딩 컨벤션을 분석 (토큰 사용량 증가)
+                                </p>
+                              </label>
+                            </div>
+                          </div>
 
                           {/* 추가 프롬프트 입력 */}
                           <div className="mb-6 text-left">

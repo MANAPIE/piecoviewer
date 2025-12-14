@@ -30,7 +30,8 @@ export default async function SettingsPage() {
     mcpServerEnv: settings.mcp_server_env,
     customPrompt: settings.custom_prompt,
     reviewLanguage: settings.review_language,
-    reviewStyle: settings.review_style
+    reviewStyle: settings.review_style,
+    analyzeCodebase: settings.analyze_codebase === 1
   } : null;
 
   return <SettingsForm user={user} settings={formattedSettings} />;

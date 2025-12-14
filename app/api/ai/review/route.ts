@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { userQueries, settingsQueries, reviewQueries } from '@/lib/db/sqlite';
 import { getAIProvider } from '@/lib/ai';
+import { Octokit } from '@octokit/rest';
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,6 +45,72 @@ export async function POST(request: NextRequest) {
       }>;
     };
 
+    // 코드베이스 분석 옵션이 활성화되어 있으면 레포지토리 구조 가져오기
+    let codebaseContext = '';
+    if (settings.analyze_codebase === 1) {
+      try {
+        const octokit = new Octokit({ auth: user.access_token });
+
+        // 레포지토리 기본 정보
+        const repoInfo = await octokit.repos.get({ owner, repo });
+
+        // 레포지토리 트리 구조 가져오기 (루트 레벨)
+        const tree = await octokit.git.getTree({
+          owner,
+          repo,
+          tree_sha: 'HEAD',
+          recursive: '1' // 전체 트리 구조
+        });
+
+        // 주요 파일들 (README, 설정 파일 등) 내용 가져오기
+        const importantFiles = ['README.md', 'package.json', 'tsconfig.json', '.eslintrc', '.prettierrc'];
+        const fileContents: Record<string, string> = {};
+
+        for (const file of importantFiles) {
+          try {
+            const content = await octokit.repos.getContent({
+              owner,
+              repo,
+              path: file
+            });
+
+            if ('content' in content.data && typeof content.data.content === 'string') {
+              fileContents[file] = Buffer.from(content.data.content, 'base64').toString('utf-8');
+            }
+          } catch {
+            // 파일이 없으면 무시
+          }
+        }
+
+        // 코드베이스 컨텍스트 생성
+        codebaseContext = `
+## Repository Context
+
+**Repository:** ${repoInfo.data.full_name}
+**Description:** ${repoInfo.data.description || 'N/A'}
+**Primary Language:** ${repoInfo.data.language || 'N/A'}
+
+### Project Structure
+\`\`\`
+${tree.data.tree.slice(0, 100).map(item => `${item.type === 'tree' ? '📁' : '📄'} ${item.path}`).join('\n')}
+${tree.data.tree.length > 100 ? `... and ${tree.data.tree.length - 100} more files` : ''}
+\`\`\`
+
+${Object.entries(fileContents).map(([filename, content]) => `
+### ${filename}
+\`\`\`
+${content.slice(0, 1000)}${content.length > 1000 ? '\n... (truncated)' : ''}
+\`\`\`
+`).join('\n')}
+
+Please analyze this PR in the context of the overall codebase structure and coding conventions used in this project.
+`;
+      } catch (error) {
+        console.error('Failed to fetch codebase context:', error);
+        // 에러가 나도 리뷰는 계속 진행
+      }
+    }
+
     // AI Provider 설정
     const aiProvider = getAIProvider(settings.ai_provider);
 
@@ -84,7 +151,11 @@ ${file.patch || ''}`;
         deletions: f.deletions,
         patch: f.patch
       })),
-      customPrompt: settings.custom_prompt || undefined
+      customPrompt: settings.custom_prompt
+        ? (codebaseContext ? `${codebaseContext}\n\n${settings.custom_prompt}` : settings.custom_prompt)
+        : (codebaseContext || undefined),
+      reviewLanguage: settings.review_language,
+      reviewStyle: settings.review_style
     });
 
     // PIEcoviewer 푸터 추가

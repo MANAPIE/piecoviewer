@@ -17,6 +17,7 @@ type Settings = {
   customPrompt: string | null;
   reviewLanguage: string;
   reviewStyle: string;
+  analyzeCodebase: boolean;
 } | null;
 
 export default function SettingsForm({
@@ -40,7 +41,8 @@ export default function SettingsForm({
     mcpServerEnv: settings?.mcpServerEnv || '',
     customPrompt: settings?.customPrompt || '',
     reviewLanguage: settings?.reviewLanguage || 'ko',
-    reviewStyle: settings?.reviewStyle || 'detailed'
+    reviewStyle: settings?.reviewStyle || 'detailed',
+    analyzeCodebase: settings?.analyzeCodebase || false
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -306,6 +308,24 @@ export default function SettingsForm({
                   placeholder="추가로 AI에게 전달할 지시사항을 입력하세요..."
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 />
+              </div>
+
+              <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg">
+                <input
+                  type="checkbox"
+                  id="analyzeCodebase"
+                  checked={formData.analyzeCodebase}
+                  onChange={(e) =>
+                    setFormData({ ...formData, analyzeCodebase: e.target.checked })
+                  }
+                  className="w-4 h-4 text-purple-600 border-gray-300 dark:border-gray-600 rounded focus:ring-purple-500"
+                />
+                <label htmlFor="analyzeCodebase" className="text-sm text-gray-900 dark:text-white">
+                  <span className="font-semibold">코드베이스 전반 분석</span>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    PR의 변경 사항뿐만 아니라 레포지토리의 전체 구조와 코딩 컨벤션을 분석하여 리뷰합니다. (토큰 사용량 증가)
+                  </p>
+                </label>
               </div>
             </div>
 

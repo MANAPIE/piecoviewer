@@ -232,13 +232,16 @@ export default async function PRReviewPage({
     ...(comment.pull_request_review_id !== null && { pull_request_review_id: comment.pull_request_review_id })
   })) || [];
 
-  // githubReviews를 PRReviewContent가 기대하는 형태로 변환 (type 필드 제거, user null 필터링)
+  // githubReviews를 PRReviewContent가 기대하는 형태로 변환 (user null 필터링)
   const formattedGithubReviews = githubReviews
     .filter(review => review.user !== null)
-    .map(({ type, ...review }) => ({
-      ...review,
+    .map((review) => ({
+      id: review.id,
       user: review.user!,
-      submitted_at: review.submitted_at || ''
+      body: review.body,
+      state: review.state,
+      submitted_at: review.submitted_at || '',
+      html_url: review.html_url
     }));
 
   // userSettings를 camelCase로 변환
@@ -250,7 +253,8 @@ export default async function PRReviewPage({
     geminiApiKey: settings.gemini_api_key,
     customPrompt: settings.custom_prompt,
     reviewLanguage: settings.review_language,
-    reviewStyle: settings.review_style
+    reviewStyle: settings.review_style,
+    analyzeCodebase: settings.analyze_codebase === 1
   } : null;
 
   return (

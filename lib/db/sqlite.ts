@@ -27,6 +27,7 @@ export interface Settings {
   custom_prompt: string | null;
   review_language: string;
   review_style: string;
+  analyze_codebase: number;
   created_at: string;
   updated_at: string;
 }
@@ -83,6 +84,7 @@ db.exec(`
     custom_prompt TEXT,
     review_language TEXT DEFAULT 'ko',
     review_style TEXT DEFAULT 'detailed',
+    analyze_codebase INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -170,17 +172,18 @@ export const settingsQueries = {
     customPrompt?: string;
     reviewLanguage?: string;
     reviewStyle?: string;
+    analyzeCodebase?: boolean;
   }) => {
     return db.prepare(`
       INSERT INTO settings (
         user_id, ai_provider, claude_api_key, openai_api_key, gemini_api_key,
         use_mcp, mcp_server_command, mcp_server_args, mcp_server_env,
-        custom_prompt, review_language, review_style
+        custom_prompt, review_language, review_style, analyze_codebase
       )
       VALUES (
         @userId, @aiProvider, @claudeApiKey, @openaiApiKey, @geminiApiKey,
         @useMcp, @mcpServerCommand, @mcpServerArgs, @mcpServerEnv,
-        @customPrompt, @reviewLanguage, @reviewStyle
+        @customPrompt, @reviewLanguage, @reviewStyle, @analyzeCodebase
       )
       ON CONFLICT(user_id) DO UPDATE SET
         ai_provider = @aiProvider,
@@ -194,6 +197,7 @@ export const settingsQueries = {
         custom_prompt = @customPrompt,
         review_language = @reviewLanguage,
         review_style = @reviewStyle,
+        analyze_codebase = @analyzeCodebase,
         updated_at = CURRENT_TIMESTAMP
     `).run({
       userId,
@@ -207,7 +211,8 @@ export const settingsQueries = {
       mcpServerEnv: data.mcpServerEnv || null,
       customPrompt: data.customPrompt || null,
       reviewLanguage: data.reviewLanguage || 'ko',
-      reviewStyle: data.reviewStyle || 'detailed'
+      reviewStyle: data.reviewStyle || 'detailed',
+      analyzeCodebase: data.analyzeCodebase ? 1 : 0
     });
   }
 };
