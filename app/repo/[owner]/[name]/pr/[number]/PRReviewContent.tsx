@@ -114,6 +114,62 @@ function CodeViewer({ file, targetLine }: { file: File; targetLine?: number }) {
   );
 }
 
+// 원본 파일 뷰어 컴포넌트 (diff가 아닌 전체 파일 표시)
+function PlainFileViewer({ content, targetLine }: { content: string; targetLine?: number }) {
+  const targetLineRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 타겟 라인으로 스크롤
+  useEffect(() => {
+    if (targetLineRef.current && containerRef.current && targetLine) {
+      setTimeout(() => {
+        const container = containerRef.current;
+        const target = targetLineRef.current;
+        if (!container || !target) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const relativeTop = targetRect.top - containerRect.top;
+        const scrollPosition = container.scrollTop + relativeTop - containerRect.height / 2 + targetRect.height / 2;
+
+        container.scrollTop = scrollPosition;
+      }, 100);
+    }
+  }, [targetLine]);
+
+  const lines = content.split('\n');
+
+  return (
+    <div ref={containerRef} className="mt-2 bg-gray-800 dark:bg-gray-900 rounded-lg overflow-auto max-h-96 border border-gray-600">
+      <div className="text-xs font-mono p-3">
+        {lines.map((line, idx) => {
+          const lineNum = idx + 1;
+          const isTargetLine = targetLine && lineNum === targetLine;
+
+          return (
+            <div
+              key={idx}
+              ref={isTargetLine ? targetLineRef : null}
+              className={`flex ${
+                isTargetLine
+                  ? 'bg-blue-900/50 border-l-2 border-blue-400'
+                  : ''
+              }`}
+            >
+              <span className="inline-block w-12 text-right pr-3 text-gray-500 dark:text-gray-600 select-none flex-shrink-0">
+                {lineNum}
+              </span>
+              <code className="block whitespace-pre-wrap break-all text-gray-200">
+                {line}
+              </code>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 type PullRequest = {
   number: number;
   title: string;
@@ -190,6 +246,10 @@ type GitHubReviewComment = {
   created_at: string;
   html_url: string;
   pull_request_review_id?: number;
+  original_line?: number;
+  original_commit_id?: string;
+  commit_id?: string;
+  in_reply_to_id?: number;
 };
 
 type Commit = {
@@ -250,6 +310,11 @@ export default function PRReviewContent({
   const [isAddingComment, setIsAddingComment] = useState(false);
   const [newComment, setNewComment] = useState({ filename: '', line: '', comment: '' });
   const [additionalPrompt, setAdditionalPrompt] = useState('');
+
+  // 원본 코드 표시 상태 관리
+  const [showingOriginalCode, setShowingOriginalCode] = useState<Record<number, boolean>>({});
+  const [originalCodeData, setOriginalCodeData] = useState<Record<number, { filename: string; content: string; commitSha: string } | null>>({});
+  const [loadingOriginalCode, setLoadingOriginalCode] = useState<Record<number, boolean>>({});
 
   // 리뷰 설정 상태
   const [reviewLanguage, setReviewLanguage] = useState(userSettings?.reviewLanguage || 'ko');
@@ -463,7 +528,7 @@ export default function PRReviewContent({
     // 드래그 중에는 dragOverIndex를 유지
   };
 
-  const handleDrop = (e: React.DragEvent, _dropIndex: number) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     if (editingCommentIndex !== null) return;
     if (draggedIndex === null || dragOverIndex === null || draggedIndex === dragOverIndex) {
@@ -545,6 +610,61 @@ export default function PRReviewContent({
     } catch (error) {
       console.error('Failed to save settings:', error);
       throw error;
+    }
+  };
+
+  // 원본 코드 가져오기 함수
+  const handleToggleOriginalCode = async (commentId: number, commitId: string | undefined, filePath: string) => {
+
+    // 이미 보고 있으면 토글해서 숨기기
+    if (showingOriginalCode[commentId]) {
+      setShowingOriginalCode(prev => ({ ...prev, [commentId]: false }));
+      return;
+    }
+
+    // commit_id가 없으면 불가능
+    if (!commitId) {
+      alert('원본 코드 정보가 없습니다.');
+      return;
+    }
+
+    // 이미 로드한 데이터가 있으면 재사용
+    if (originalCodeData[commentId]) {
+      setShowingOriginalCode(prev => ({ ...prev, [commentId]: true }));
+      return;
+    }
+
+    // 로딩 시작
+    setLoadingOriginalCode(prev => ({ ...prev, [commentId]: true }));
+
+    try {
+      // PR의 base 브랜치 참조 (예: main, master 등)
+      const baseRef = pullRequest.base.ref;
+
+      const response = await fetch(
+        `/api/github/commit-diff?owner=${owner}&repo=${name}&commit=${commitId}&file=${encodeURIComponent(filePath)}&base=${encodeURIComponent(baseRef)}`
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch original code');
+      }
+
+      const data = await response.json();
+
+      // 데이터 저장
+      setOriginalCodeData(prev => {
+        const newData = { ...prev, [commentId]: data };
+        return newData;
+      });
+      setShowingOriginalCode(prev => {
+        const newState = { ...prev, [commentId]: true };
+        return newState;
+      });
+    } catch (error) {
+      console.error('Error fetching original code:', error);
+      alert('원본 코드를 가져오는데 실패했습니다.');
+    } finally {
+      setLoadingOriginalCode(prev => ({ ...prev, [commentId]: false }));
     }
   };
 
@@ -703,17 +823,54 @@ export default function PRReviewContent({
             )}
 
             {/* GitHub 리뷰 목록 */}
-            {githubReviews.length > 0 && (
+            {(githubReviews.length > 0 || githubReviewComments.some(c => !c.pull_request_review_id)) && (
               <div className="mt-6">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
-                  기존 리뷰 ({githubReviews.length})
+                  기존 리뷰 ({githubReviews.length + (githubReviewComments.filter(c => !c.pull_request_review_id).length > 0 ? 1 : 0)})
                 </h3>
                 <div className="space-y-3">
-                  {githubReviews.map((review) => {
-                    // 이 리뷰에 속한 라인별 코멘트 찾기
-                    const reviewLineComments = githubReviewComments.filter(
-                      (comment) => comment.pull_request_review_id === review.id
+                  {[...githubReviews].sort((a, b) =>
+                    new Date(a.submitted_at).getTime() - new Date(b.submitted_at).getTime()
+                  ).map((review) => {
+                    // 스레드 구성 함수: in_reply_to_id 기반으로 스레드를 만듦
+                    const buildThreads = (allComments: typeof githubReviewComments) => {
+                      // Top-level 코멘트 찾기 (답글이 아닌 것)
+                      const topLevel = allComments.filter(c => !c.in_reply_to_id);
+
+                      // 각 top-level 코멘트에 대해 스레드 구성
+                      return topLevel.map(topComment => {
+                        const thread = [topComment];
+
+                        // 이 코멘트의 답글들을 재귀적으로 찾기 (전체 코멘트에서 찾음)
+                        const findReplies = (parentId: number): typeof githubReviewComments => {
+                          const replies = allComments.filter(c => c.in_reply_to_id === parentId);
+                          // 시간순 정렬
+                          replies.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+                          const allReplies: typeof githubReviewComments = [];
+                          for (const reply of replies) {
+                            allReplies.push(reply);
+                            // 재귀적으로 답글의 답글 찾기
+                            allReplies.push(...findReplies(reply.id));
+                          }
+                          return allReplies;
+                        };
+
+                        thread.push(...findReplies(topComment.id));
+                        return thread;
+                      });
+                    };
+
+                    // 이 리뷰에 속한 스레드 찾기 (최상위 코멘트의 review_id 기준)
+                    const allThreads = buildThreads(githubReviewComments);
+                    const reviewThreads = allThreads.filter(thread =>
+                      thread[0].pull_request_review_id === review.id
                     );
+
+                    // 리뷰 본문도 없고 라인 코멘트도 없으면 건너뛰기
+                    if (!review.body && reviewThreads.length === 0 && review.state === 'COMMENTED') {
+                      return null;
+                    }
 
                     return (
                       <div
@@ -763,39 +920,160 @@ export default function PRReviewContent({
                             )}
 
                             {/* 라인별 코멘트 표시 */}
-                            {reviewLineComments.length > 0 && (
-                              <div className="mt-3 space-y-2 pl-3 border-l-2 border-purple-200 dark:border-purple-800">
-                                {reviewLineComments.map((comment) => {
-                                  const file = files.find(f => f.filename === comment.path);
+                            {reviewThreads.length > 0 && (
+                              <div className="mt-3 space-y-4 pl-1">
+                                {(() => {
+                                  // 스레드를 최신 코멘트 기준으로 정렬 (최신이 아래로)
+                                  const sortedThreads = [...reviewThreads].sort((a, b) => {
+                                    const latestA = a[a.length - 1];
+                                    const latestB = b[b.length - 1];
+                                    return new Date(latestA.created_at).getTime() - new Date(latestB.created_at).getTime();
+                                  });
 
-                                  return (
-                                    <div key={comment.id} className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3">
-                                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs font-mono">
-                                          <FaCode className="text-xs" />
-                                          {comment.path}
-                                        </span>
-                                        {comment.line && (
-                                          <span className="px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded text-xs font-medium">
-                                            Line {comment.line}
+                                  return sortedThreads.map((comments) => {
+                                    const firstComment = comments[0];
+                                    const file = files.find(f => f.filename === firstComment.path);
+
+                                    // GitHub API 기준: line이 없고 original_line이 있으면 outdated
+                                    const isOutdated = !firstComment.line && !!firstComment.original_line;
+
+                                    return (
+                                      <div key={firstComment.id} className="bg-purple-50 dark:bg-purple-900/20 border-l-2 border-purple-200 dark:border-purple-800 p-3">
+                                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs font-mono">
+                                            <FaCode className="text-xs" />
+                                            {firstComment.path}
                                           </span>
-                                        )}
-                                      </div>
-                                      <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap mb-2">
-                                        {comment.body}
-                                      </p>
-
-                                      {/* 코드 뷰어 */}
-                                      {file && file.patch ? (
-                                        <CodeViewer file={file} targetLine={comment.line} />
-                                      ) : (
-                                        <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-500 dark:text-gray-400">
-                                          코드 미리보기를 사용할 수 없습니다.
+                                          {(firstComment.line || firstComment.original_line) && (
+                                            <span className="px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded text-xs font-medium">
+                                              Line {firstComment.line || firstComment.original_line}
+                                            </span>
+                                          )}
+                                          {isOutdated && (
+                                            <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded text-xs font-medium">
+                                              Outdated
+                                            </span>
+                                          )}
+                                          {/* 원본 코드 보기 버튼 */}
+                                          {(firstComment.original_commit_id || firstComment.commit_id) && (
+                                            <button
+                                              onClick={() => handleToggleOriginalCode(
+                                                firstComment.id,
+                                                firstComment.original_commit_id || firstComment.commit_id,
+                                                firstComment.path
+                                              )}
+                                              disabled={loadingOriginalCode[firstComment.id]}
+                                              className="ml-auto px-2 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                              {loadingOriginalCode[firstComment.id] ? (
+                                                <span className="flex items-center gap-1">
+                                                  <FaSpinner className="animate-spin text-xs" />
+                                                  로딩 중...
+                                                </span>
+                                              ) : showingOriginalCode[firstComment.id] ? (
+                                                '현재 코드 보기'
+                                              ) : (
+                                                '원본 코드 보기'
+                                              )}
+                                            </button>
+                                          )}
                                         </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+
+                                        {/* Outdated 경고 메시지 */}
+                                        {isOutdated && !showingOriginalCode[firstComment.id] && (
+                                          <div className="mb-4 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-200">
+                                            <p className="font-medium mb-1">⚠️ 이 코멘트는 오래되었습니다</p>
+                                            <p className="text-amber-700 dark:text-amber-300">
+                                              원본 코드 보기 버튼을 눌러 코멘트 작성 시점의 코드를 확인하세요.
+                                            </p>
+                                          </div>
+                                        )}
+
+                                        {/* 코드 뷰어 - 첫 코멘트 기준으로만 표시 */}
+                                        {(() => {
+                                          // 원본 코드 표시 모드인지 확인
+                                          const showingOriginal = showingOriginalCode[firstComment.id];
+                                          const originalData = originalCodeData[firstComment.id];
+
+                                          // 원본 코드를 보고 있는 경우
+                                          if (showingOriginal && originalData) {
+                                            return (
+                                              <div className="mb-4">
+                                                <div className="mb-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-xs text-blue-800 dark:text-blue-200">
+                                                  📜 코멘트가 작성된 시점의 원본 코드를 보고 있습니다
+                                                </div>
+                                                <PlainFileViewer
+                                                  content={originalData.content}
+                                                  targetLine={firstComment.original_line || firstComment.line}
+                                                />
+                                              </div>
+                                            );
+                                          }
+
+                                          // 현재 PR 코드를 보고 있는 경우 (outdated가 아닐 때만)
+                                          if (!isOutdated && file && file.patch) {
+                                            return (
+                                              <div className="mb-4">
+                                                <CodeViewer
+                                                  file={file}
+                                                  targetLine={firstComment.line}
+                                                />
+                                              </div>
+                                            );
+                                          }
+
+                                          // outdated이고 원본 코드도 안 보고 있는 경우
+                                          if (isOutdated && !showingOriginal) {
+                                            return null; // 경고 메시지만 표시
+                                          }
+
+                                          return (
+                                            <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-500 dark:text-gray-400">
+                                              코드 미리보기를 사용할 수 없습니다.
+                                              {!file && ' (파일을 찾을 수 없습니다)'}
+                                            </div>
+                                          );
+                                        })()}
+
+                                        {/* 코멘트 스레드 */}
+                                        <div className="space-y-3">
+                                          {comments.map((comment) => (
+                                            <div key={comment.id}>
+                                              <div className="flex items-start gap-2 mb-1">
+                                                {comment.user && (
+                                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                                  <img
+                                                    src={comment.user.avatar_url}
+                                                    alt={comment.user.login}
+                                                    className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
+                                                  />
+                                                )}
+                                                <div className="flex-1">
+                                                  <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-xs font-medium text-gray-900 dark:text-white">
+                                                      {comment.user?.login || 'Unknown'}
+                                                    </span>
+                                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                      {new Date(comment.created_at).toLocaleDateString('ko-KR', {
+                                                        month: 'short',
+                                                        day: 'numeric',
+                                                        hour: '2-digit',
+                                                        minute: '2-digit'
+                                                      })}
+                                                    </span>
+                                                  </div>
+                                                  <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                                                    {comment.body}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  });
+                                })()}
                               </div>
                             )}
 
@@ -813,6 +1091,203 @@ export default function PRReviewContent({
                       </div>
                     );
                   })}
+
+                  {/* 독립 리뷰 코멘트 (리뷰에 속하지 않은 것들) */}
+                  {(() => {
+                    const standaloneComments = githubReviewComments.filter(c => !c.pull_request_review_id);
+                    if (standaloneComments.length === 0) return null;
+
+                    // 스레드 구성 함수
+                    const buildThreads = (comments: typeof standaloneComments) => {
+                      const topLevel = comments.filter(c => !c.in_reply_to_id);
+                      return topLevel.map(topComment => {
+                        const thread = [topComment];
+                        const findReplies = (parentId: number): typeof standaloneComments => {
+                          const replies = comments.filter(c => c.in_reply_to_id === parentId);
+                          replies.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                          const allReplies: typeof standaloneComments = [];
+                          for (const reply of replies) {
+                            allReplies.push(reply);
+                            allReplies.push(...findReplies(reply.id));
+                          }
+                          return allReplies;
+                        };
+                        thread.push(...findReplies(topComment.id));
+                        return thread;
+                      });
+                    };
+
+                    const threads = buildThreads(standaloneComments);
+                    threads.sort((a, b) => {
+                      const latestA = a[a.length - 1];
+                      const latestB = b[b.length - 1];
+                      return new Date(latestA.created_at).getTime() - new Date(latestB.created_at).getTime();
+                    });
+
+                    return (
+                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-full flex-shrink-0 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                            <FaComment className="text-gray-500 dark:text-gray-400 text-sm" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="font-medium text-gray-900 dark:text-white text-sm">
+                                라인별 코멘트
+                              </span>
+                              <span className="px-2 py-0.5 text-xs rounded flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
+                                <FaComment className="text-xs" />
+                                코멘트
+                              </span>
+                            </div>
+
+                            <div className="space-y-2 pl-3 border-l-2 border-purple-200 dark:border-purple-800">
+                              {threads.map((comments) => {
+                                const firstComment = comments[0];
+                                const file = files.find(f => f.filename === firstComment.path);
+                                const isOutdated = !firstComment.line && !!firstComment.original_line;
+
+                                return (
+                                  <div key={firstComment.id} className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3">
+                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs font-mono">
+                                        <FaCode className="text-xs" />
+                                        {firstComment.path}
+                                      </span>
+                                      {(firstComment.line || firstComment.original_line) && (
+                                        <span className="px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded text-xs font-medium">
+                                          Line {firstComment.line || firstComment.original_line}
+                                        </span>
+                                      )}
+                                      {isOutdated && (
+                                        <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded text-xs font-medium">
+                                          Outdated
+                                        </span>
+                                      )}
+                                      {/* 원본 코드 보기 버튼 */}
+                                      {(firstComment.original_commit_id || firstComment.commit_id) && (
+                                        <button
+                                          onClick={() => handleToggleOriginalCode(
+                                            firstComment.id,
+                                            firstComment.original_commit_id || firstComment.commit_id,
+                                            firstComment.path
+                                          )}
+                                          disabled={loadingOriginalCode[firstComment.id]}
+                                          className="ml-auto px-2 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded text-xs font-medium hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                          {loadingOriginalCode[firstComment.id] ? (
+                                            <span className="flex items-center gap-1">
+                                              <FaSpinner className="animate-spin text-xs" />
+                                              로딩 중...
+                                            </span>
+                                          ) : showingOriginalCode[firstComment.id] ? (
+                                            '현재 코드 보기'
+                                          ) : (
+                                            '원본 코드 보기'
+                                          )}
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {isOutdated && !showingOriginalCode[firstComment.id] && (
+                                      <div className="mb-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-200">
+                                        <p className="font-medium mb-1">⚠️ 이 코멘트는 오래되었습니다</p>
+                                        <p className="text-amber-700 dark:text-amber-300">
+                                          원본 코드 보기 버튼을 눌러 코멘트 작성 시점의 코드를 확인하세요.
+                                        </p>
+                                      </div>
+                                    )}
+
+                                    {/* 코드 뷰어 - 첫 코멘트 기준으로만 표시 */}
+                                    {(() => {
+                                      // 원본 코드 표시 모드인지 확인
+                                      const showingOriginal = showingOriginalCode[firstComment.id];
+                                      const originalData = originalCodeData[firstComment.id];
+
+                                      // 원본 코드를 보고 있는 경우
+                                      if (showingOriginal && originalData) {
+                                        return (
+                                          <div className="mb-4">
+                                            <div className="mb-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-xs text-blue-800 dark:text-blue-200">
+                                              📜 코멘트가 작성된 시점의 원본 코드를 보고 있습니다
+                                            </div>
+                                            <PlainFileViewer
+                                              content={originalData.content}
+                                              targetLine={firstComment.original_line || firstComment.line}
+                                            />
+                                          </div>
+                                        );
+                                      }
+
+                                      // 현재 PR 코드를 보고 있는 경우 (outdated가 아닐 때만)
+                                      if (!isOutdated && file && file.patch) {
+                                        return (
+                                          <div className="mb-4">
+                                            <CodeViewer
+                                              file={file}
+                                              targetLine={firstComment.line}
+                                            />
+                                          </div>
+                                        );
+                                      }
+
+                                      // outdated이고 원본 코드도 안 보고 있는 경우
+                                      if (isOutdated && !showingOriginal) {
+                                        return null; // 경고 메시지만 표시
+                                      }
+
+                                      return (
+                                        <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-500 dark:text-gray-400">
+                                          코드 미리보기를 사용할 수 없습니다.
+                                          {!file && ' (파일을 찾을 수 없습니다)'}
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {/* 코멘트 스레드 */}
+                                    <div className="space-y-3">
+                                      {comments.map((comment, idx) => (
+                                        <div key={comment.id} className={idx > 0 ? 'pl-3 border-l-2 border-gray-300 dark:border-gray-600' : ''}>
+                                          <div className="flex items-start gap-2 mb-1">
+                                            {comment.user && (
+                                              /* eslint-disable-next-line @next/next/no-img-element */
+                                              <img
+                                                src={comment.user.avatar_url}
+                                                alt={comment.user.login}
+                                                className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
+                                              />
+                                            )}
+                                            <div className="flex-1">
+                                              <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-xs font-medium text-gray-900 dark:text-white">
+                                                  {comment.user?.login || 'Unknown'}
+                                                </span>
+                                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                  {new Date(comment.created_at).toLocaleDateString('ko-KR', {
+                                                    month: 'short',
+                                                    day: 'numeric',
+                                                    hour: '2-digit',
+                                                    minute: '2-digit'
+                                                  })}
+                                                </span>
+                                              </div>
+                                              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                                                {comment.body}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}
@@ -1159,7 +1634,7 @@ export default function PRReviewContent({
                                 data-comment-index={idx}
                                 onDragStart={() => handleDragStart(idx)}
                                 onDragOver={(e) => handleDragOver(e, idx)}
-                                onDrop={(e) => handleDrop(e, idx)}
+                                onDrop={(e) => handleDrop(e)}
                                 onDragLeave={handleDragLeave}
                                 onDragEnd={handleDragEnd}
                                 onTouchStart={() => handleTouchStart(idx)}

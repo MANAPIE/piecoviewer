@@ -98,6 +98,9 @@ export default async function PRReviewPage({
       created_at: string;
       html_url: string;
       pull_request_review_id: number | null;
+      original_commit_id?: string;
+      commit_id?: string;
+      in_reply_to_id?: number;
       [key: string]: unknown;
     }>;
   };
@@ -225,11 +228,15 @@ export default async function PRReviewPage({
     id: comment.id,
     user: comment.user,
     path: comment.path,
-    line: comment.line || comment.original_line,
+    line: comment.line,
+    original_line: comment.original_line,
     body: comment.body,
     created_at: comment.created_at,
     html_url: comment.html_url,
-    ...(comment.pull_request_review_id !== null && { pull_request_review_id: comment.pull_request_review_id })
+    original_commit_id: comment.original_commit_id as string | undefined,
+    commit_id: comment.commit_id as string | undefined,
+    in_reply_to_id: comment.in_reply_to_id,
+    pull_request_review_id: comment.pull_request_review_id ?? undefined
   })) || [];
 
   // githubReviews를 PRReviewContent가 기대하는 형태로 변환 (user null 필터링)
