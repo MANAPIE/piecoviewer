@@ -239,6 +239,7 @@ export default function PRReviewContent({
 }) {
   const [reviewing, setReviewing] = useState(false);
   const [review, setReview] = useState(existingReview?.reviewContent || '');
+  const [hasGeneratedReview, setHasGeneratedReview] = useState(!!existingReview);
   const [posting, setPosting] = useState(false);
   const [message, setMessage] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -303,6 +304,7 @@ export default function PRReviewContent({
       const data = await response.json();
       setReview(data.review);
       setFileComments(data.fileComments || []);
+      setHasGeneratedReview(true);
       setAdditionalPrompt(''); // 리뷰 생성 후 프롬프트 초기화
       setMessage('AI 리뷰가 생성되었습니다!');
     } catch (error) {
@@ -317,6 +319,7 @@ export default function PRReviewContent({
     // 리뷰 초기화하여 생성 전 상태로 되돌리기
     setReview('');
     setFileComments([]);
+    setHasGeneratedReview(false);
     setMessage('');
   };
 
@@ -326,6 +329,10 @@ export default function PRReviewContent({
   };
 
   const handleSave = () => {
+    if (!editedReview.trim()) {
+      setMessage('리뷰 내용은 비워둘 수 없습니다.');
+      return;
+    }
     setReview(editedReview);
     setIsEditing(false);
     setMessage('리뷰가 수정되었습니다!');
@@ -364,6 +371,7 @@ export default function PRReviewContent({
       // 폼 초기화
       setReview('');
       setFileComments([]);
+      setHasGeneratedReview(false);
       setReviewType('COMMENT');
 
       // 페이지 데이터 새로고침 (기존 리뷰 목록 업데이트)
@@ -735,7 +743,7 @@ export default function PRReviewContent({
                 )}
               </div>
 
-              {!review ? (
+              {!hasGeneratedReview ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center">
                   {reviewing ? (
                     <>
