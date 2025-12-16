@@ -432,6 +432,95 @@ export default function PRReviewContent({
     setNewComment({ filename: '', line: '', comment: '' });
   };
 
+  // 드래그 앤 드롭 관련 상태 및 핸들러
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // 드래그 중 미리보기용 배열 계산
+  const previewComments = draggedIndex !== null && dragOverIndex !== null && draggedIndex !== dragOverIndex
+    ? (() => {
+        const temp = [...fileComments];
+        const draggedComment = temp[draggedIndex];
+        temp.splice(draggedIndex, 1);
+        temp.splice(dragOverIndex, 0, draggedComment);
+        return temp;
+      })()
+    : fileComments;
+
+  const handleDragStart = (index: number) => {
+    if (editingCommentIndex !== null) return;
+    setDraggedIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (editingCommentIndex !== null) return;
+    if (draggedIndex === null) return;
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    // 드래그 중에는 dragOverIndex를 유지
+  };
+
+  const handleDrop = (e: React.DragEvent, _dropIndex: number) => {
+    e.preventDefault();
+    if (editingCommentIndex !== null) return;
+    if (draggedIndex === null || dragOverIndex === null || draggedIndex === dragOverIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    // 미리보기 배열을 실제 배열로 적용
+    setFileComments(previewComments);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  // 터치 드래그 앤 드롭 핸들러
+  const handleTouchStart = (index: number) => {
+    setDraggedIndex(index);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (editingCommentIndex !== null) return;
+    if (draggedIndex === null) return;
+
+    const touch = e.touches[0];
+    const elementAtPoint = document.elementFromPoint(touch.clientX, touch.clientY);
+
+    if (!elementAtPoint) return;
+
+    // 가장 가까운 드래그 가능한 항목 찾기
+    const commentCard = elementAtPoint.closest('[data-comment-index]');
+    if (commentCard) {
+      const targetIndex = parseInt(commentCard.getAttribute('data-comment-index') || '-1');
+      if (targetIndex !== -1) {
+        setDragOverIndex(targetIndex);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (editingCommentIndex !== null) return;
+    if (draggedIndex === null || dragOverIndex === null || draggedIndex === dragOverIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    // 미리보기 배열을 실제 배열로 적용
+    setFileComments(previewComments);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
   // 설정 저장 함수
   const saveSettings = async () => {
     try {
@@ -986,9 +1075,13 @@ export default function PRReviewContent({
                             </div>
                         )}
 
-                        {fileComments.map((comment, idx) => (
-                          <div key={idx}>
-                            {editingCommentIndex === idx ? (
+                        {previewComments.map((comment, idx) => {
+                          // 원본 배열에서의 인덱스 찾기
+                          const originalIdx = fileComments.indexOf(comment);
+
+                          return (
+                            <div key={originalIdx !== -1 ? originalIdx : idx}>
+                              {editingCommentIndex === originalIdx ? (
                               <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border border-purple-200 dark:border-purple-800">
                                 <div className="space-y-3">
                                   <div>
@@ -1061,7 +1154,23 @@ export default function PRReviewContent({
                                 </div>
                               </div>
                             ) : (
-                              <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border border-purple-200 dark:border-purple-800">
+                              <div
+                                draggable
+                                data-comment-index={idx}
+                                onDragStart={() => handleDragStart(idx)}
+                                onDragOver={(e) => handleDragOver(e, idx)}
+                                onDrop={(e) => handleDrop(e, idx)}
+                                onDragLeave={handleDragLeave}
+                                onDragEnd={handleDragEnd}
+                                onTouchStart={() => handleTouchStart(idx)}
+                                onTouchMove={handleTouchMove}
+                                onTouchEnd={handleTouchEnd}
+                                className={`rounded-lg p-3 border cursor-move transition-all touch-none ${
+                                  dragOverIndex === idx && draggedIndex !== null
+                                  ? 'bg-purple-100 dark:bg-purple-800/40 border-purple-400 dark:border-purple-500 shadow-lg'
+                                  : 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800'
+                                }`}
+                              >
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="flex-1">
                                     <div className="flex items-center gap-2 mb-2">
@@ -1111,9 +1220,10 @@ export default function PRReviewContent({
                                   </div>
                                 </div>
                               </div>
-                            )}
-                          </div>
-                        ))}
+                              )}
+                            </div>
+                          );
+                        })}
 
                         {fileComments.length === 0 && !isAddingComment && (
                           <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
