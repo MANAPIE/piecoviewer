@@ -115,12 +115,31 @@ export default async function PRReviewPage({
     });
     pullRequest = prResponse.data;
 
-    const filesResponse = await octokit.pulls.listFiles({
-      owner,
-      repo: name,
-      pull_number: prNumber
-    });
-    files = filesResponse.data.map(file => ({
+    // 모든 파일 가져오기 (페이지네이션 처리)
+    let allFiles: GitHubFile[] = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const filesResponse = await octokit.pulls.listFiles({
+        owner,
+        repo: name,
+        pull_number: prNumber,
+        per_page: 100,
+        page
+      });
+
+      allFiles = allFiles.concat(filesResponse.data);
+
+      // 100개 미만이면 마지막 페이지
+      if (filesResponse.data.length < 100) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    }
+
+    files = allFiles.map(file => ({
       ...file,
       changes: file.changes || (file.additions + file.deletions)
     }));

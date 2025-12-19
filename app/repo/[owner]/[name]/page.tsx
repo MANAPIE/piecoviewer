@@ -64,23 +64,55 @@ export default async function RepoPage({
       const repoResponse = await octokit.repos.get({ owner, repo: name });
       repo = repoResponse.data;
 
-      const openPRResponse = await octokit.pulls.list({
-        owner,
-        repo: name,
-        state: 'open',
-        sort: 'updated',
-        per_page: 100
-      });
-      openPullRequests = openPRResponse.data.filter(pr => pr.user !== null) as PullRequest[];
+      // 열린 PR 모두 가져오기 (페이지네이션 처리)
+      let allOpenPRs: PullRequest[] = [];
+      let openPage = 1;
+      let hasMoreOpen = true;
 
-      const closedPRResponse = await octokit.pulls.list({
-        owner,
-        repo: name,
-        state: 'closed',
-        sort: 'updated',
-        per_page: 100
-      });
-      closedPullRequests = closedPRResponse.data.filter(pr => pr.user !== null) as PullRequest[];
+      while (hasMoreOpen) {
+        const openPRResponse = await octokit.pulls.list({
+          owner,
+          repo: name,
+          state: 'open',
+          sort: 'updated',
+          per_page: 100,
+          page: openPage
+        });
+
+        allOpenPRs = allOpenPRs.concat(openPRResponse.data.filter(pr => pr.user !== null) as PullRequest[]);
+
+        if (openPRResponse.data.length < 100) {
+          hasMoreOpen = false;
+        } else {
+          openPage++;
+        }
+      }
+      openPullRequests = allOpenPRs;
+
+      // 닫힌 PR 모두 가져오기 (페이지네이션 처리)
+      let allClosedPRs: PullRequest[] = [];
+      let closedPage = 1;
+      let hasMoreClosed = true;
+
+      while (hasMoreClosed) {
+        const closedPRResponse = await octokit.pulls.list({
+          owner,
+          repo: name,
+          state: 'closed',
+          sort: 'updated',
+          per_page: 100,
+          page: closedPage
+        });
+
+        allClosedPRs = allClosedPRs.concat(closedPRResponse.data.filter(pr => pr.user !== null) as PullRequest[]);
+
+        if (closedPRResponse.data.length < 100) {
+          hasMoreClosed = false;
+        } else {
+          closedPage++;
+        }
+      }
+      closedPullRequests = allClosedPRs;
     } catch (error: unknown) {
       console.error('Failed to fetch repository:', error);
       fetchError = true;

@@ -66,13 +66,30 @@ export default async function DashboardPage() {
       const userResponse = await octokit.users.getAuthenticated();
       githubUsername = userResponse.data.login;
 
-      // 개인 저장소와 조직 저장소 모두 가져오기
-      const response = await octokit.repos.listForAuthenticatedUser({
-        sort: 'updated',
-        per_page: 100,
-        affiliation: 'owner,collaborator,organization_member'
-      });
-      repos = response.data.map(repo => ({
+      // 개인 저장소와 조직 저장소 모두 가져오기 (페이지네이션 처리)
+      let allRepos: GitHubRepo[] = [];
+      let page = 1;
+      let hasMore = true;
+
+      while (hasMore) {
+        const response = await octokit.repos.listForAuthenticatedUser({
+          sort: 'updated',
+          per_page: 100,
+          affiliation: 'owner,collaborator,organization_member',
+          page
+        });
+
+        allRepos = allRepos.concat(response.data);
+
+        // 100개 미만이면 마지막 페이지
+        if (response.data.length < 100) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+
+      repos = allRepos.map(repo => ({
         ...repo,
         updated_at: repo.updated_at || ''
       }));
