@@ -79,7 +79,12 @@ export default async function DashboardPage() {
           page
         });
 
-        allRepos = allRepos.concat(response.data);
+        const normalizedRepos = response.data.map(repo => ({
+          ...repo,
+          updated_at: repo.updated_at || ''
+        }));
+
+        allRepos = allRepos.concat(normalizedRepos);
 
         // 100개 미만이면 마지막 페이지
         if (response.data.length < 100) {
@@ -89,10 +94,7 @@ export default async function DashboardPage() {
         }
       }
 
-      repos = allRepos.map(repo => ({
-        ...repo,
-        updated_at: repo.updated_at || ''
-      }));
+      repos = allRepos;
     } catch (error: unknown) {
       console.error('Failed to fetch repositories:', error);
       fetchError = true;
