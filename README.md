@@ -30,7 +30,7 @@ AI-powered GitHub Pull Request code review tool built with Next.js 15, supportin
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 24
 - npm or yarn or pnpm
 - GitHub account
 - One of the following:
